@@ -1,5 +1,5 @@
 /** 
-☑️ 资源解析器 ©𝐒𝐡𝐚𝐰𝐧  ⟦2026-11-02 18:07 UTC+8⟧
+☑️ 资源解析器 ©𝐒𝐡𝐚𝐰𝐧  ⟦2026-11-20 UTC+8⟧
 ----------------------------------------------------------
 🛠 发现 𝐁𝐔𝐆 请反馈: https://t.me/ShawnKOP_Parser_Bot
 ⛳️ 关注 🆃🅶 相关频道: https://t.me/QuanX_API
@@ -8,7 +8,7 @@
 
 🤖 主要功能: 
 ❶ 将其它格式的⟦服务器订阅⟧解析成 𝐐𝐮𝐚𝐧𝐭𝐮𝐦𝐮𝐥𝐭 𝐗 格式
-☑︎ 支持 𝐕2𝐫𝐚𝐲𝐍/𝗦𝗦(𝗥/𝗗)/𝗧𝗿𝗼𝗷𝗮𝗻/𝐕𝐋𝗲𝐬𝐬/𝗛𝗧𝗧𝗣(𝗦)/𝗔𝗻𝘆𝗧𝗟𝗦/𝗤𝘂𝗮𝗻𝘁𝘂𝗺𝘂𝗹𝘁(𝗫)/𝗦𝘂𝗿𝗴𝗲/𝐂𝐥𝐚𝐬𝐡/𝐒𝐡𝐚𝐝𝐨𝐰𝐫𝐨𝐜𝐤𝐞𝐭/𝐋𝐨𝐨𝐧 格式
+☑︎ 支持 𝐕2𝐫𝐚𝐲𝐍/𝗦𝗦(𝗥/𝗗)/𝗧𝗿𝗼𝗷𝗮𝗻/𝐕𝐋𝗲𝐬𝐬/𝗛𝗧𝗧𝗣(𝗦)/𝗔𝗻𝘆𝗧𝗟𝗦/Hysteria 2/𝗤𝘂𝗮𝗻𝘁𝘂𝗺𝘂𝗹𝘁(𝗫)/𝗦𝘂𝗿𝗴𝗲/𝐂𝐥𝐚𝐬𝐡/𝐒𝐡𝐚𝐝𝐨𝐰𝐫𝐨𝐜𝐤𝐞𝐭/𝐋𝐨𝐨𝐧 格式
 ☑︎ 提供说明 1⃣️ 中的可选个性化参数(筛选、重命名 等)
 ☑︎ 节点扫码识别疑似订阅链接时，点击通知跳转添加节点订阅
 ❷ 𝗿𝗲𝘄𝗿𝗶𝘁𝗲(重写) & 𝗳𝗶𝗹𝘁𝗲𝗿(分流) 的 转换 & 筛选 
@@ -104,8 +104,13 @@
 /**
 * 使用说明，
 0️⃣ 在QuantumultX 配置文件中[general] 部分，加入 
-resource_parser_url = https://raw.githubusercontent.com/KOP-XIAO/QuantumultX/master/Scripts/resource-parser.js
-⚠️⚠️如提示"没有自定义解析器"，请长按右下角图标后点击左侧刷新按钮，更新资源，后台退出 app，直到出现解析器说明
+resource_parser_url = https://raw.githubusercontent.com/akaagiao1/QuantumultX/main/Scripts/resource-parser.js
+1️⃣ 在 [server_remote] 中给节点订阅加 opt-parser=true，保存后刷新节点资源。
+2️⃣ Hysteria 2 需 Quantumult X 1.9.0 (build 965) 或更新版本。旧版会跳过 HY2 节点。
+   支持 hysteria2=、hy2://、hysteria2://（含 Base64 订阅）及 Clash/Mihomo 的 type: hysteria2。
+   支持 Salamander、下载带宽和单个端口范围的跳跃。已有原生节点可直接填进 [server_local]。
+   例如 hy2://pwd@example.com:443/?sni=example.com#HY2
+⚠️ 若提示没有自定义解析器，请确认 [general] 中的地址已保存，再刷新节点资源。
 
 ------------------------------
 */
@@ -675,6 +680,8 @@ function TLSCertParam(Pcert0, fallback) {
   return value === "" || value === undefined || value === null ? "" : "tls-verification=" + value;
 }
 
+const HY2_MIN_BUILD = 965;
+const HY2_TYPE_LABELS = ["𝐡𝐲𝟐", "𝐇𝐘𝟐", "🅗🅨②", "🅷🆈2", "ⓗⓨ②", "🄷🅈2", "𝕙𝕪𝟚", "ʰʸ²", "HY2"];
 var PNS=0 // 不支持的节点统计
 var NSList=["当前订阅内，不支持以下节点 ↘️ \n"] // 不支持节点列表
 
@@ -1280,7 +1287,7 @@ function TagCheck_QX(content) {
   typefix = {"shadowsocks":["𝐬𝐬","𝐒𝐒","🅢🅢","🆂🆂","ⓢⓢ","🅂🅂","SS"],"shadowsocksr":["𝐬𝐬𝐫","𝐒𝐒𝐑","🅢🅢🅡","🆂🆂🆁","ⓢⓢⓡ","🅂🅂🅁","SSR"],
     "vmess":["𝐯𝐦𝐞𝐬𝐬","𝐕𝐌𝐄𝐒𝐒","🅥🅜🅔🅢🅢","🆅🅼🅴🆂🆂","ⓥⓜⓔⓢⓢ","🅅🄼🄴🅂🅂","VMESS"],"trojan":["𝐭𝐫𝐨𝐣𝐚𝐧","𝐓𝐑𝐎𝐉𝐀𝐍","🅣🅡🅞🅙🅐🅝","🆃🆁🅾🅹🅰🅽","ⓣⓡⓞⓙⓐⓝ","🅃🅁🄾🄹🄰🄽","TROJAN"],
     "http":["𝐡𝐭𝐭𝐩","𝐇𝐓𝐓𝐏","🅗🅣🅣🅟","🅷🆃🆃🅿","ⓗⓣⓣⓟ","🄷🅃🅃🄿","HTTP"],"socks5":["𝐬𝐨𝗰𝗸𝐬","𝐒𝐎𝐂𝐊𝐒","🅢🅞🅒🅚🅢","🆂🅾🅲🅺🆂","ⓢⓄⒸⓀⓢ","🅂🄾🄲🄺🅂","SOCKS"],
-    "vless":["𝐯𝐥𝐞𝐬𝐬","𝐕𝐋𝐄𝐒𝐒","🅥🅛🅔🅢🅢","🆅🅻🅴🆂🆂","ⓥⓛⓔⓢⓢ","🅅🄻🄴🅂🅂","VLESS"],"anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝖠𝖭𝖸𝖳𝖫𝖲"]
+    "vless":["𝐯𝐥𝐞𝐬𝐬","𝐕𝐋𝐄𝐒𝐒","🅥🅛🅔🅢🅢","🆅🅻🅴🆂🆂","ⓥⓛⓔⓢⓢ","🅅🄻🄴🅂🅂","VLESS"],"anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝖠𝖭𝖸𝖳𝖫𝖲"], "hysteria2": HY2_TYPE_LABELS
   } // type
   console.log(content)
     var Olist = content.map(item =>item.trim())//.replace(/\s{2,}/g," "))
@@ -1412,7 +1419,7 @@ function titleCase(str) {
 // 类型前缀/后缀
 function type_prefix(item) {
   if(item.trim()!="") {
-    typefix = {"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","socks5":"「𝐬𝐨𝗰𝗸𝐬」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」"}
+    typefix = {"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","socks5":"「𝐬𝐨𝗰𝗸𝐬」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」","hysteria2":"「" + HY2_TYPE_LABELS[0] + "」"}
     typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? "「𝐬𝐬𝐫」" : "「𝐬𝐬」"
     tp = typefix[item.split("=")[0].trim()]
     return [[item.split("tag=")[0]+
@@ -1421,7 +1428,7 @@ function type_prefix(item) {
 }
 function type_suffix(item) {
   if(item.trim()!=""){
-    typefix={"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」"}
+    typefix={"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」","hysteria2":"「" + HY2_TYPE_LABELS[0] + "」"}
     typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? "「𝐬𝐬𝐫」" : "「𝐬𝐬」"
     tp = typefix[item.split("=")[0].trim()]
     return [item, tp].join(" ")
@@ -1439,7 +1446,8 @@ function getnode_type(item,ind) {
       "http":["𝐡𝐭𝐭𝐩","𝐇𝐓𝐓𝐏","🅗🅣🅣🅟","🅷🆃🆃🅿","ⓗⓣⓣⓟ","🄷🅃🅃🄿","𝕙𝕥𝕥𝕡","ʰᵗᵗᵖ","HTTP"],
       "socks5":["𝐬𝐨𝗰𝗸𝐬","𝐒𝐎𝐂𝐊𝐒","🅢🅞🅒🅚🅢","🆂🅾🅲🅺🆂","ⓢⓞⓒⓚⓢ","🅂🄾🄲🄺🅂","𝕤𝕠𝕔𝕜𝕤","ˢᵒᶜᵏˢ","SOCKS"],
       "vless":["𝐯𝐥𝐞𝐬𝐬","𝐕𝐋𝐄𝐒𝐒","🅥🅛🅔🅢🅢","🆅🅻🅴🆂🆂","ⓥⓛⓔⓢⓢ","🅅🄻🄴🅂🅂","𝕍𝕝𝕖𝕤𝕤","ᵛˡᵉˢˢ","VLESS"],
-      "anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝔸𝕟𝕪𝕥𝕝𝕤","ᴬⁿʸᵗˡˢ","𝖠𝖭𝖸𝖳𝖫𝖲"]
+      "anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝔸𝕟𝕪𝕥𝕝𝕤","ᴬⁿʸᵗˡˢ","𝖠𝖭𝖸𝖳𝖫𝖲"],
+      "hysteria2": HY2_TYPE_LABELS
     }
     typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? typefix["shadowsocksr"] : typefix["shadowsocks"]
     tp = typefix[item.split("=")[0].trim()][ind]
@@ -2662,6 +2670,9 @@ function Subs2QX(subs, Pudp, Ptfo, Pcert0, PTls13) {
             const NodeCheck = (item) => listi.toLowerCase().indexOf(item) != -1;
             const NodeCheck1 = (item) => listi.toLowerCase().indexOf(item) == 0;
             const NodeCheck2 = (item) => listi.indexOf(item) != -1;
+            var isHY2URI = /^(?:hysteria2|hy2):\/\//i.test(list0[i].trim());
+            var isHY2Native = /^hysteria2\s*=/.test(list0[i].trim());
+            if ((isHY2URI || isHY2Native) && !HY2BuildSupported()) continue;
             try {
               if (Pdbg) {$notify(i, type, list0[i])}
                 if (type == "vmess" && (list0[i].indexOf("remark=") == -1 && list0[i].indexOf("remarks=") == -1) && !/(obfs|alterId|type|\@)\=/.test(list0[i])) {
@@ -2717,8 +2728,8 @@ function Subs2QX(subs, Pudp, Ptfo, Pcert0, PTls13) {
                   } else {
                     node=Anytls2QX(list0[i],Pcert0)
                   }
-                } else if (type == "hysteria2" || type == "hy2") {
-                  node = HY2URI2QX(list0[i], Pcert0);
+                } else if (isHY2URI) {
+                  node = HY2URI2QX(list0[i].trim(), Pcert0);
                 } else if (QuanXK.some(NodeCheck1)) { // QuanX type 
                     node = QX_TLS(isQuanX(list0[i])[0], Pcert0, PTls13)
                 } else if (LoonK.some(NodeCheck2)) { // Loon type
@@ -3206,13 +3217,20 @@ function SSR2QX(subs, Pudp, Ptfo) {
     return QX;
 }
 
+function HY2BuildSupported() {
+  if (version >= HY2_MIN_BUILD) return true;
+  PNS += 1;
+  NSList.push(numToEmoji10(PNS) + "Hysteria 2（需 Quantumult X 1.9.0 / build " + HY2_MIN_BUILD + " 或更新版本）");
+  return false;
+}
+
 // Hysteria 2 URI and Clash conversion. Reject unrepresentable values instead of silently changing a connection.
 function HY2Value(value) {
   value = String(value);
   if (/[\r\n,]/.test(value)) throw new Error("Hysteria2 value cannot be represented in Quantumult X");
   return value;
 }
-function HY2Node(server, port, password, opts) {
+function HY2Node(server, port, password, cert, opts) {
   if (!server || password === undefined || password === null || password === "") throw new Error("Missing Hysteria2 server or password");
   server = HY2Value(server);
   if (server.indexOf(":") !== -1 && server[0] !== "[") server = "[" + server + "]";
@@ -3236,7 +3254,7 @@ function HY2Node(server, port, password, opts) {
     fields.push("download-bandwidth=" + bandwidth[1]);
   }
   if (opts.sni) fields.push("tls-host=" + HY2Value(opts.sni));
-  fields.push(TLSCertParam(PcertMatch ? Pcert0 : "", opts.insecure ? "false" : "true"));
+  fields.push(TLSCertParam(PcertMatch ? cert : "", opts.insecure ? "false" : "true"));
   fields.push("udp-relay=true", "tag=" + HY2Value(opts.name || "[hysteria2]" + server));
   return fields.join(", ");
 }
@@ -3245,7 +3263,7 @@ function HY2URI2QX(uri, cert) {
   if (!match) throw new Error("Invalid Hysteria2 URI");
   var authority = match[2].match(/^(\[[^\]]+\]|[^:]+)(?::(.+))?$/);
   if (!authority) throw new Error("Invalid Hysteria2 server");
-  var params = {};
+  var params = Object.create(null);
   (match[3] || "").split("&").filter(Boolean).forEach(function (item) {
     var parts = item.split("=");
     params[decodeURIComponent(parts.shift())] = decodeURIComponent(parts.join("="));
@@ -3253,7 +3271,7 @@ function HY2URI2QX(uri, cert) {
   if (params.pinSHA256 || params.ech) throw new Error("Unsupported Hysteria2 TLS option");
   var port = authority[2] || "443", ports = "";
   if (port.indexOf("-") !== -1) { ports = port; port = port.split("-")[0]; }
-  return HY2Node(authority[1], port, decodeURIComponent(match[1]), {
+  return HY2Node(authority[1], port, decodeURIComponent(match[1]), cert, {
     ports: ports || params.ports, interval: params["hop-interval"], down: params.down,
     obfs: params.obfs, obfsPassword: params["obfs-password"], sni: params.sni,
     insecure: params.insecure === "1" || params.insecure === "true", name: match[4] ? decodeURIComponent(match[4]) : ""
@@ -3262,7 +3280,7 @@ function HY2URI2QX(uri, cert) {
 function HY2Clash2QX(cnt) {
   if (cnt.fingerprint || cnt["name-cert-verify"] || cnt["realm-opts"]) throw new Error("Unsupported Hysteria2 TLS or realm option");
   var ports = cnt.ports || "", port = cnt.port || (ports ? String(ports).split("-")[0] : 443);
-  return HY2Node(cnt.server, port, cnt.password, {ports: ports, interval: cnt["hop-interval"], down: cnt.down,
+  return HY2Node(cnt.server, port, cnt.password, Pcert0, {ports: ports, interval: cnt["hop-interval"], down: cnt.down,
     obfs: cnt.obfs, obfsPassword: cnt["obfs-password"], sni: cnt.sni,
     insecure: cnt["skip-cert-verify"] === true, name: ClashNameFix(cnt.name)});
 }
@@ -4798,6 +4816,7 @@ function Clash2QX(cnt) {
       } else if (typecc == "vless"){
         node = CVL2QX(node)
       } else if (typecc == "hysteria2" || typecc == "hy2") {
+        if (!HY2BuildSupported()) continue;
         node = HY2Clash2QX(node);
       } else if (typecc=="anytls" && version >913) { //anytls
         node = CTLS2QX(node)
@@ -5087,6 +5106,7 @@ function XUDP(cnt,pudp) {
 }
 
 function XTFO(cnt,ptfo) {
+    if (/^hysteria2\s*=/.test(cnt.trim())) return cnt;
     var tfo = ptfo == 1? "fast-open=true, " : "fast-open=false, "
     if(cnt.indexOf("fast-open") != -1){
         var cnt0 = cnt.replace(RegExp("fast\-open.*?\,", "gmi"), tfo)
@@ -5779,7 +5799,7 @@ function Tools() {
         const nodes = {
             names: servers.map(s => s.split("tag=")[1]),
             types: servers.map(s => {
-                const type = s.match(/^(vmess|trojan|shadowsocks|http)=/);
+                const type = s.match(/^(vmess|trojan|shadowsocks|http|hysteria2)=/);
                 return type ? type[1] : 'unknown';
             })
         };
