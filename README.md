@@ -41,9 +41,4 @@ hysteria2=example.com:443, password=pwd, tls-host=example.com, tls-verification=
 
 
 
-如觉得有帮助，可以请喝杯咖啡:
-
-
-
-<img src="https://tva1.sinaimg.cn/large/007S8ZIlgy1geiniiv2onj30u00u0wgi.jpg" alt="IMG_5957" style="zoom:23%;" />
 
