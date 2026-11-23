@@ -48,6 +48,7 @@
 ⦿ tsession=0/1/2, 0/1 代表关闭 tls-session-ticket/reuse，2 表示全部关闭
 ⦿ checkurl=xxx , 指定 server_check_url 参数
 ⦿ singbox=1/full, 改出 sing-box outbounds JSON（1 只出数组，full 出最小完整配置）；仅 Node 下可用，QuanX 内刷新订阅仍须返回 QuanX 行，见 Scripts/singbox-from-subscription.js
+⦿ sing-box JSON 订阅：内容是带 outbounds 数组的 sing-box 配置时自动识别并转 QuanX 行（反向），在 QuanX 内刷新订阅也能用
 ⦿ sort=1/-1/x/参数规则, 按节点名 正/逆/随机/参数规则 排序
   ❖ 参数规则是正则表达式或简单关键词, 用"<" 或 ">" 连接
   ❖ sort=🇭🇰>🇸🇬>🇯🇵>🇺🇸 , 靠前排序
@@ -1262,6 +1263,327 @@ function SBConvertLines(text, full) {
 // end sing-box 输出
 // ============================================================
 
+// ============================================================
+// sing-box 输入（sing-box JSON → QuanX）
+// 订阅内容是 sing-box 配置（带 outbounds 数组的对象，或 outbounds
+// 数组本身）时，Type_Check 认出它，Singbox2QX 把每个出站转成
+// QuanX 原生行，再走正常节点流程（重命名/筛选/跳过统计都生效）。
+// 与 #singbox 输出相反：这里输出就是 QuanX 行，所以在 QuanX 内
+// 刷新订阅也能用。V2Ray/Xray JSON 不认：它的出站没有顶层
+// server/server_port（用 settings.vnext），不会误判。
+// 只用函数声明（见上面 NOTE）：Type_Check 在文件靠前位置执行。
+// 跳过并记入 PNS/NSList：direct/block/selector/urltest、
+// 不支持的类型（wireguard/tuic/naive/shadowtls/mieru 等）、
+// 带 VLESS Encryption 的 VLESS、hy2 的 realm、grpc/quic 等
+// QuanX 无等价写法的 transport、缺必填字段的出站。
+// ============================================================
+function isSingboxJSON(subs) {
+  var s = subs.replace(/^\uFEFF/, "").trim();
+  if (s.charAt(0) !== "{" && s.charAt(0) !== "[") return false;
+  var doc;
+  try { doc = JSON.parse(s); } catch (e) { return false; }
+  var outs = Array.isArray(doc) ? doc : (doc && doc.outbounds);
+  if (!Array.isArray(outs) || outs.length === 0) return false;
+  // 至少一个出站带顶层 server（+ server_port，或 hy2 的 server_ports）；
+  // V2Ray JSON 的出站没有这些顶层字段，不会误判。
+  for (var i = 0; i < outs.length; i++) {
+    var o = outs[i];
+    if (!o || typeof o.type !== "string" || typeof o.server !== "string") continue;
+    if (typeof o.server_port === "number") return true;
+    if (o.type === "hysteria2" && Array.isArray(o.server_ports) && o.server_ports.length > 0) return true;
+  }
+  return false;
+}
+
+function SBQSkip(o, reason) {
+  PNS += 1;
+  NSList.push(numToEmoji10(PNS) + (o.tag || o.type || "unknown") + " " + (o.type || "") + "（" + reason + "）");
+  return null;
+}
+
+function SBQHost(server) {
+  if (!server) return "";
+  return server.indexOf(":") !== -1 && server.charAt(0) !== "[" ? "[" + server + "]" : server;
+}
+
+function SBQTag(o) {
+  return o.tag || (o.type + "-" + (o.server || "node"));
+}
+
+function SBQTls(o) {
+  var tls = o.tls;
+  if (!tls || !tls.enabled) return null;
+  return { host: tls.server_name || "", verify: tls.insecure === true ? "false" : "true", reality: tls.reality || null };
+}
+
+function SBQUdp(o) {
+  return "udp-relay=" + (o.network === "tcp" ? "false" : "true");
+}
+
+function SBQJoin(parts) {
+  return parts.filter(Boolean).join(", ");
+}
+
+function SBQHy2(o) {
+  if (!o.password || !o.server) return SBQSkip(o, "缺少 password/server");
+  if (o.realm) return SBQSkip(o, "realm 中继暂不支持");
+  // server_port 缺失时从 server_ports 首段起点取（本段 hy2 常见写法：
+  // 只给 "20000:50000"、不给 server_port，首连端口就是 20000）。
+  var port = o.server_port;
+  var range = null;
+  if (o.server_ports) {
+    if (!Array.isArray(o.server_ports) || o.server_ports.length !== 1) {
+      return SBQSkip(o, "组合端口范围无法转换");
+    }
+    range = String(o.server_ports[0]).match(/^(\d+):(\d+)$/);
+    if (!range) return SBQSkip(o, "端口范围无法转换: " + o.server_ports[0]);
+    if (!port) port = parseInt(range[1], 10);
+  }
+  if (!port) return SBQSkip(o, "缺少 server_port");
+  var parts = ["password=" + o.password];
+  if (o.obfs) {
+    if (o.obfs.type === "salamander") parts.push("salamander-password=" + o.obfs.password);
+    else if (o.obfs.type === "gecko") parts.push("gecko-password=" + o.obfs.password);
+    else return SBQSkip(o, "不支持的 obfs: " + o.obfs.type);
+  }
+  if (range) {
+    parts.push("port-hopping=" + range[1] + "-" + range[2]);
+    if (o.hop_interval) {
+      var hi = parseInt(String(o.hop_interval), 10);
+      if (hi) parts.push("port-hopping-interval=" + hi);
+    }
+    // hop_interval_max / alpn：QuanX 无等价参数，丢弃（见 README）。
+  }
+  if (o.down_mbps) parts.push("download-bandwidth=" + o.down_mbps);
+  var tls = SBQTls(o);
+  if (tls) {
+    if (tls.host) parts.push("tls-host=" + tls.host);
+    parts.push("tls-verification=" + tls.verify);
+  }
+  parts.push(SBQUdp(o));
+  parts.push("tag=" + SBQTag(o));
+  return "hysteria2=" + SBQHost(o.server) + ":" + port + ", " + SBQJoin(parts);
+}
+
+function SBQVless(o) {
+  if (!o.uuid || !o.server || !o.server_port) return SBQSkip(o, "缺少 uuid/server/server_port");
+  if (o.encryption && o.encryption !== "none") return SBQSkip(o, "VLESS Encryption 无 QuanX 原生写法");
+  var parts = ["method=none", "password=" + o.uuid];
+  if (o.flow) parts.push("vless-flow=" + o.flow);
+  var tr = o.transport || {};
+  var trType = (tr.type || "tcp").toLowerCase();
+  var tls = SBQTls(o);
+  if (trType === "ws") {
+    parts.push("obfs=" + (tls ? "wss" : "ws"));
+    if (tr.path) parts.push("obfs-uri=" + tr.path);
+    var host = (tr.headers && tr.headers.Host) ? tr.headers.Host : (tls ? tls.host : "");
+    if (host) parts.push("obfs-host=" + host);
+  } else if (trType === "http") {
+    parts.push("obfs=http");
+    if (tr.host && tr.host.length) parts.push("obfs-host=" + tr.host[0]);
+    if (tr.path) parts.push("obfs-uri=" + tr.path);
+  } else if (trType !== "tcp") {
+    return SBQSkip(o, "不支持的 transport: " + trType);
+  }
+  if (tls) {
+    if (trType === "tcp") {
+      parts.push("obfs=over-tls");
+      if (tls.host) parts.push("obfs-host=" + tls.host);
+      if (tls.reality && tls.reality.enabled) {
+        if (tls.reality.public_key) parts.push("reality-base64-pubkey=" + tls.reality.public_key);
+        if (tls.reality.short_id) parts.push("reality-hex-shortid=" + tls.reality.short_id);
+      }
+    }
+    parts.push("tls-verification=" + tls.verify);
+  }
+  parts.push(SBQUdp(o));
+  parts.push("tag=" + SBQTag(o));
+  return "vless=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQTrojan(o) {
+  if (!o.password || !o.server || !o.server_port) return SBQSkip(o, "缺少 password/server/server_port");
+  var parts = ["password=" + o.password];
+  var tr = o.transport || {};
+  var trType = (tr.type || "tcp").toLowerCase();
+  var tls = SBQTls(o);
+  if (trType === "ws") {
+    parts.push("obfs=" + (tls ? "wss" : "ws"));
+    if (tr.path) parts.push("obfs-uri=" + tr.path);
+    var host = (tr.headers && tr.headers.Host) ? tr.headers.Host : (tls ? tls.host : "");
+    if (host) parts.push("obfs-host=" + host);
+  } else if (trType === "tcp") {
+    if (tls) {
+      parts.push("over-tls=true");
+      if (tls.host) parts.push("tls-host=" + tls.host);
+    }
+  } else {
+    return SBQSkip(o, "不支持的 transport: " + trType);
+  }
+  if (tls) parts.push("tls-verification=" + tls.verify);
+  parts.push(SBQUdp(o));
+  parts.push("tag=" + SBQTag(o));
+  return "trojan=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQVmess(o) {
+  if (!o.uuid || !o.server || !o.server_port) return SBQSkip(o, "缺少 uuid/server/server_port");
+  var securityMap = {
+    "aes-128-gcm": "aes-128-gcm",
+    "chacha20-poly1305": "chacha20-ietf-poly1305",
+    "none": "none"
+  };
+  var parts = [];
+  var method = securityMap[(o.security || "").toLowerCase()];
+  if (o.security && !method && o.security.toLowerCase() !== "auto") {
+    return SBQSkip(o, "不支持的 security: " + o.security);
+  }
+  if (method) parts.push("method=" + method);
+  parts.push("password=" + o.uuid);
+  if (o.alter_id && o.alter_id !== 0) parts.push("aead=false");
+  var tr = o.transport || {};
+  var trType = (tr.type || "tcp").toLowerCase();
+  var tls = SBQTls(o);
+  if (trType === "ws") {
+    parts.push("obfs=" + (tls ? "wss" : "ws"));
+    if (tr.path) parts.push("obfs-uri=" + tr.path);
+    var host = (tr.headers && tr.headers.Host) ? tr.headers.Host : (tls ? tls.host : "");
+    if (host) parts.push("obfs-host=" + host);
+  } else if (trType === "http") {
+    parts.push("obfs=http");
+    if (tr.host && tr.host.length) parts.push("obfs-host=" + tr.host[0]);
+    if (tr.path) parts.push("obfs-uri=" + tr.path);
+  } else if (trType === "tcp") {
+    if (tls) {
+      parts.push("obfs=over-tls");
+      if (tls.host) parts.push("obfs-host=" + tls.host);
+    }
+  } else {
+    return SBQSkip(o, "不支持的 transport: " + trType);
+  }
+  if (tls) parts.push("tls-verification=" + tls.verify);
+  parts.push(SBQUdp(o));
+  parts.push("tag=" + SBQTag(o));
+  return "vmess=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQPluginOpts(opts) {
+  var out = {};
+  if (!opts) return out;
+  var items = String(opts).split(";");
+  for (var i = 0; i < items.length; i++) {
+    var kv = items[i].split("=");
+    if (kv.length === 2) out[kv[0].trim()] = kv[1].trim();
+    else if (items[i].trim() === "tls") out.tls = true;
+  }
+  return out;
+}
+
+function SBQShadowsocks(o) {
+  if (!o.method || !o.password || !o.server || !o.server_port) return SBQSkip(o, "缺少 method/password/server/server_port");
+  var parts = ["method=" + o.method, "password=" + o.password];
+  if (o.plugin === "obfs-local") {
+    var po = SBQPluginOpts(o.plugin_opts);
+    if (po.obfs) parts.push("obfs=" + po.obfs);
+    if (po["obfs-host"]) parts.push("obfs-host=" + po["obfs-host"]);
+    if (po["obfs-uri"]) parts.push("obfs-uri=" + po["obfs-uri"]);
+  } else if (o.plugin === "v2ray-plugin") {
+    var vp = SBQPluginOpts(o.plugin_opts);
+    parts.push("obfs=" + (vp.tls ? "wss" : "ws"));
+    if (vp.host) parts.push("obfs-host=" + vp.host);
+    if (vp.path) parts.push("obfs-uri=" + vp.path);
+  } else if (o.plugin) {
+    return SBQSkip(o, "不支持的 plugin: " + o.plugin);
+  }
+  if (o.udp_over_tcp === true) parts.push("udp-over-tcp=true");
+  parts.push(SBQUdp(o));
+  parts.push("tag=" + SBQTag(o));
+  return "shadowsocks=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQSocks(o) {
+  if (!o.server || !o.server_port) return SBQSkip(o, "缺少 server/server_port");
+  if (o.version && o.version !== "5") return SBQSkip(o, "只支持 SOCKS5");
+  var parts = [];
+  if (o.username) parts.push("username=" + o.username);
+  if (o.password) parts.push("password=" + o.password);
+  var tls = SBQTls(o);
+  if (tls) {
+    parts.push("over-tls=true");
+    if (tls.host) parts.push("tls-host=" + tls.host);
+    parts.push("tls-verification=" + tls.verify);
+  }
+  parts.push(SBQUdp(o));
+  parts.push("tag=" + SBQTag(o));
+  return "socks5=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQHttp(o) {
+  if (!o.server || !o.server_port) return SBQSkip(o, "缺少 server/server_port");
+  var parts = [];
+  if (o.username) parts.push("username=" + o.username);
+  if (o.password) parts.push("password=" + o.password);
+  var tls = SBQTls(o);
+  if (tls) {
+    parts.push("over-tls=true");
+    if (tls.host) parts.push("tls-host=" + tls.host);
+    parts.push("tls-verification=" + tls.verify);
+  }
+  parts.push("tag=" + SBQTag(o));
+  return "http=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQAnytls(o) {
+  if (!o.password || !o.server || !o.server_port) return SBQSkip(o, "缺少 password/server/server_port");
+  var parts = ["password=" + o.password];
+  var tls = SBQTls(o);
+  if (tls) {
+    if (tls.host) parts.push("tls-host=" + tls.host);
+    parts.push("tls-verification=" + tls.verify);
+    if (tls.reality && tls.reality.enabled) {
+      if (tls.reality.public_key) parts.push("reality-base64-pubkey=" + tls.reality.public_key);
+      if (tls.reality.short_id) parts.push("reality-hex-shortid=" + tls.reality.short_id);
+    }
+  }
+  parts.push("tag=" + SBQTag(o));
+  return "anytls=" + SBQHost(o.server) + ":" + o.server_port + ", " + SBQJoin(parts);
+}
+
+function SBQOutbound(o) {
+  if (!o || typeof o.type !== "string") return SBQSkip(o || {}, "无 type");
+  if (o.type === "hysteria2") return SBQHy2(o);
+  if (o.type === "vless") return SBQVless(o);
+  if (o.type === "trojan") return SBQTrojan(o);
+  if (o.type === "vmess") return SBQVmess(o);
+  if (o.type === "shadowsocks") return SBQShadowsocks(o);
+  if (o.type === "socks") return SBQSocks(o);
+  if (o.type === "http") return SBQHttp(o);
+  if (o.type === "anytls") return SBQAnytls(o);
+  if (o.type === "direct" || o.type === "block" || o.type === "selector" || o.type === "urltest") {
+    return SBQSkip(o, "不是节点");
+  }
+  return SBQSkip(o, "不支持的类型: " + o.type);
+}
+
+// sing-box 配置（对象或数组）转 QuanX 原生行（每行一个，\n 分隔）。
+// 解析失败或无 outbounds 时返回 ""，由调用方走无有效节点流程。
+function Singbox2QX(subs) {
+  var s = subs.replace(/^\uFEFF/, "").trim();
+  var doc;
+  try { doc = JSON.parse(s); } catch (e) { return ""; }
+  var outs = Array.isArray(doc) ? doc : (doc && doc.outbounds);
+  if (!Array.isArray(outs)) return "";
+  var lines = [];
+  for (var i = 0; i < outs.length; i++) {
+    var line = SBQOutbound(outs[i]);
+    if (line) lines.push(line);
+  }
+  return lines.join("\n");
+}
+// ============================================================
+// end sing-box 输入
+// ============================================================
+
 
 function ResourceParse() {
   var rewriteFailures = [];
@@ -1272,7 +1594,7 @@ function ResourceParse() {
   } else if (type0 == "Subs") {
     //$notify("subs","",content0+Pudp0+Ptfo0+Pcert0+PTls13)
     total = Subs2QX(content0, Pudp0, Ptfo0, Pcert0, PTls13);
-  } else if (type0 == "QuanX" || type0 == "Clash" || type0 == "Surge") {
+  } else if (type0 == "QuanX" || type0 == "Clash" || type0 == "Surge" || type0 == "Singbox") {
     total = Subs2QX(isQuanX(content0).join("\n"), Pudp0, Ptfo0, Pcert0, PTls13);
   } else if (type0 == "sgmodule") { // surge module 模块/含 url-regex 的 rule-set
     //2023-03-06 考虑模块重写与quanx类型重写的混搭
@@ -1562,6 +1884,10 @@ function Type_Check(subs) {
       type = "web";
     } else if (typeU == "nodes" && typeQ=="server") { //指定为节点类型
       type = (typeQ == "unsupported" || typeQ =="server")? "Subs":"wrong-field"
+    } else if (isSingboxJSON(subs) || typeU == "singbox"){ // sing-box JSON 转 QuanX
+      type = (typeQ == "unsupported" || typeQ =="server")? "Singbox":"wrong-field";
+      typec = "server"
+      content0 = Singbox2QX(subs)
     } else if (ClashK.some(NodeCheck) || typeU == "clash"){ // Clash 类型节点转换
       type = (typeQ == "unsupported" || typeQ =="server")? "Clash":"wrong-field";
       typec = "server"

@@ -70,6 +70,8 @@ node Scripts/quanx-to-singbox.js my-nodes.conf --full --out singbox.json
 
 仓库自带测试：`node tests/singbox-parser.test.js`（解析器开关）与 `node tests/singbox-converter.test.js`（独立脚本）。实测用仓库模板 `--include-commented --full` 生成的配置已通过 `sing-box 1.15.0-alpha.13` 的 `sing-box check`（22 个样例节点转成，10 个按上面规则跳过）；混合订阅（hy2 + VLESS Reality + mieru）与 Clash YAML 经解析器开关转出的 `--full` 配置同样通过 check。
 
+**反向：sing-box JSON → QuanX。**订阅内容是 sing-box 配置（带 `outbounds` 数组的对象，或数组本身）时，解析器自动识别并把每个出站转成 QuanX 原生行，**在 QuanX 内刷新订阅也能用**（输出就是 QuanX 行，不像 `#singbox` 那样只限 Node）。用法：把 sing-box 配置放到一个订阅链接里，加资源时打开 opt-parser 即可；也可以在链接后加 `#type=singbox` 强制走这条路。能转：hysteria2（含 Gecko/Salamander、端口跳跃、下载带宽）、VLESS Reality/Vision 与 ws/wss/http、Trojan、VMess、Shadowsocks（含 obfs-local / v2ray-plugin）、SOCKS5、HTTP、AnyTLS。跳过并通知原因的：direct/block/selector/urltest（不是节点）、wireguard/tuic/naive/shadowtls/mieru 等无 QuanX 等价写法的类型、带 VLESS Encryption 的 VLESS、hy2 的 realm、grpc/quic 等传输、缺必填字段的出站。Hy2 只给 `server_ports` 不给 `server_port` 时，首连端口取范围起点（如 `20000:50000` → `38.247.39.62:20000`）。丢弃、无等价物的参数：hy2 的 `hop_interval_max`（QuanX 只有固定 `port-hopping-interval`）、`alpn`。V2Ray/Xray JSON 不认（出站没有顶层 `server`/`server_port`），不会误判。测试：`node tests/singbox-reverse.test.js`，含正反向往返（QuanX 行 → `#singbox` JSON → QuanX 行，关键字段保留）。
+
 [解析器源码](Scripts/resource-parser.js) · [完整配置示例](QuantumultX_Profiles.conf)
 
 有bug请反馈 [@ShawnKOP_Parser_Bot](https://t.me/Shawn_Parser_Bot) 
