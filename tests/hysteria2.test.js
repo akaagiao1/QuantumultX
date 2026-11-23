@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const code = fs.readFileSync('Scripts/resource-parser.js', 'utf8');
+const code = fs.readFileSync(process.env.QUANX_TEST_PARSER || 'Scripts/resource-parser.js', 'utf8');
 function parse(content, suffix='', build=965, notifications=[]) {
   let result;
   const context = { $resource: {type:'server', link:'https://example.com/sub'+suffix, content, tag:'test'}, $environment: {version:'Quantumult X build'+build}, $notify:(...args)=>notifications.push(args), $done:r=>result=r, console: {log:()=>{}}, setTimeout, clearTimeout };
@@ -47,8 +47,40 @@ assert.doesNotMatch(parse(hy2, '#tfo=1'), /fast-open=/);
 assert.match(parse(hy2, '#rename=$type@'), /tag=HY2URI/);
 assert.match(parse(hy2, '#suffix=1'), /tag=URI 「𝐡𝐲𝟐」/);
 assert.match(parse(native.replace('tag=native', 'tag=')), /tag=.*example\.com/);
+const geckoUri = 'hy2://pwd@example.com:443?obfs=gecko&obfs-password=key%40edge&sni=apple.com&insecure=0#Gecko';
+const geckoNative = 'hysteria2=example.com:443, password=pwd, gecko-password=key@edge, tls-host=apple.com, tls-verification=true, udp-relay=true, tag=Gecko';
+const geckoYaml = 'proxies:\n  - name: Gecko\n    type: hysteria2\n    server: example.com\n    port: 443\n    password: pwd\n    obfs: gecko\n    obfs-password: "key$and\x60"\n  - {name: Other, type: http, server: example.org, port: 80}';
+assert.equal(parse(geckoUri, '', 969), geckoNative);
+assert.equal(parse(geckoNative, '', 969), geckoNative);
+assert.equal(parse(Buffer.from(geckoUri).toString('base64'), '', 969), geckoNative);
+assert.match(parse(geckoYaml, '', 969), /gecko-password=key\$and\x60/);
+assert.match(parse(geckoYaml, '', 969), /^http=/m);
+
+const salamander = 'hy2://pwd@example.org:443?obfs=salamander&obfs-password=oldkey#StillSupported';
+for (const content of [geckoUri + '\n' + salamander, geckoNative + '\n' + salamander, geckoYaml]) {
+  const notifications = [];
+  const old = parse(content, '', 968, notifications);
+  assert.doesNotMatch(old, /gecko-password=/);
+  assert.match(old, /^(?:http=|hysteria2=example\.org)/m);
+  assert.match(notifications.flat().join(' '), /Gecko.*build 969/);
+}
+const conflictNotices = [];
+const conflict = geckoNative.replace('gecko-password=key@edge,', 'gecko-password=key@edge, salamander-password=oldkey,');
+assert.doesNotMatch(parse(conflict + '\n' + other, '', 969, conflictNotices), /^hysteria2=/m);
+assert.match(conflictNotices.flat().join(' '), /Gecko.*Salamander/);
+const missing = parse(geckoUri.replace('&obfs-password=key%40edge', '') + '\n' + other, '', 969);
+assert.doesNotMatch(missing, /^hysteria2=/m);
+assert.match(missing, /^http=/m);
+
+const customPaddingNotices = [];
+const customPadding = geckoYaml.replace('    obfs: gecko', '    obfs: gecko\n    obfs-min-packet-size: 512');
+assert.doesNotMatch(parse(customPadding, '', 969, customPaddingNotices), /^hysteria2=/m);
+assert.match(customPaddingNotices.flat().join(' '), /自定义 Gecko 包大小/);
+assert.equal(parse(geckoNative.replace('key@edge', 'chacha20-poly-key'), '', 969),
+  geckoNative.replace('key@edge', 'chacha20-poly-key'));
+
 const profile = fs.readFileSync('QuantumultX_Profiles.conf', 'utf8');
 const samples = profile.match(/^;hysteria2=.+/gm).map(line => line.slice(1));
-assert.equal(samples.length, 4);
-for (const sample of samples) assert.equal(parse(sample), sample);
+assert.equal(samples.length, 6);
+for (const sample of samples) assert.equal(parse(sample, '', 969), sample);
 console.log('Hysteria 2 integration tests passed');

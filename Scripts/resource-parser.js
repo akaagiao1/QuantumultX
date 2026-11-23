@@ -110,6 +110,7 @@ resource_parser_url = https://raw.githubusercontent.com/akaagiao1/QuantumultX/ma
    支持 hysteria2=、hy2://、hysteria2://（含 Base64 订阅）及 Clash/Mihomo 的 type: hysteria2。
    支持 Salamander、下载带宽和单个端口范围的跳跃。已有原生节点可直接填进 [server_local]。
    例如 hy2://pwd@example.com:443/?sni=example.com#HY2
+   Gecko 混淆需要 build 969+，使用 gecko-password，不能与 salamander-password 同时设置。
 3️⃣ mieru 需 Quantumult X 1.9.0 (build 968) 或更新版本。
    支持原生 mieru=（TCP/TLS/REALITY）、单端口 TCP 的 mierus:// 简单分享链接及 Clash/Mihomo 的 type: mieru。
    UDP 中继通过 TCP。完整 mieru:// 客户端配置、UDP 传输及不能转换的选项会提示并跳过。
@@ -684,6 +685,7 @@ function TLSCertParam(Pcert0, fallback) {
 }
 
 const HY2_MIN_BUILD = 965;
+const HY2_GECKO_MIN_BUILD = 969;
 const MIERU_MIN_BUILD = 968;
 const MIERU_NATIVE = /^mieru\s*=/i;
 const MIERU_URI = /^mierus?:\/\//i;
@@ -2687,6 +2689,7 @@ function Subs2QX(subs, Pudp, Ptfo, Pcert0, PTls13) {
             var isHY2URI = /^(?:hysteria2|hy2):\/\//i.test(list0[i].trim());
             var isHY2Native = /^hysteria2\s*=/.test(list0[i].trim());
             if ((isHY2URI || isHY2Native) && !NodeBuildSupported("Hysteria 2", HY2_MIN_BUILD)) continue;
+            if (isHY2Native && !HY2NativeGeckoSupported(line)) continue;
             try {
               if (Pdbg) {$notify(i, type, list0[i])}
                 if (type == "vmess" && (list0[i].indexOf("remark=") == -1 && list0[i].indexOf("remarks=") == -1) && !/(obfs|alterId|type|\@)\=/.test(list0[i])) {
@@ -2743,7 +2746,8 @@ function Subs2QX(subs, Pudp, Ptfo, Pcert0, PTls13) {
                     node=Anytls2QX(list0[i],Pcert0)
                   }
                 } else if (isHY2URI) {
-                  node = HY2URI2QX(list0[i].trim(), Pcert0);
+                  node = HY2URI2QX(line, Pcert0);
+                  if (!node) continue;
                 } else if (QuanXK.some(NodeCheck1)) { // QuanX type 
                     node = QX_TLS(isQuanX(list0[i])[0], Pcert0, PTls13)
                 } else if (LoonK.some(NodeCheck2)) { // Loon type
@@ -3241,6 +3245,21 @@ function NodeBuildSupported(protocol, minBuild) {
   return false;
 }
 
+function HY2NativeGeckoSupported(line) {
+  const gecko = line.match(/,\s*gecko-password\s*=\s*([^,]*)/i);
+  if (!gecko) return true;
+  if (!NodeBuildSupported("Hysteria 2 Gecko", HY2_GECKO_MIN_BUILD)) return false;
+  if (/,\s*salamander-password\s*=/i.test(line)) {
+    NoteUnsupportedNode("Hysteria 2 Gecko", "Gecko 与 Salamander 混淆不能同时设置");
+    return false;
+  }
+  if (!gecko[1].trim()) {
+    NoteUnsupportedNode("Hysteria 2 Gecko", "缺少混淆密码");
+    return false;
+  }
+  return true;
+}
+
 // Hysteria 2 URI and Clash conversion. Reject unrepresentable values instead of silently changing a connection.
 function HY2Value(value) {
   value = String(value);
@@ -3254,11 +3273,19 @@ function HY2Node(server, port, password, cert, opts) {
   var ports = opts.ports ? HY2Value(opts.ports) : "";
   if (ports && !/^\d+-\d+$/.test(ports)) throw new Error("Unsupported Hysteria2 port hopping format");
   if (!/^\d+$/.test(String(port))) throw new Error("Invalid Hysteria2 port");
-  if (opts.obfs && opts.obfs !== "salamander") throw new Error("Unsupported Hysteria2 obfuscation");
+  const obfs = String(opts.obfs || "").toLowerCase();
+  if (obfs && obfs !== "salamander" && obfs !== "gecko") throw new Error("Unsupported Hysteria2 obfuscation");
+  if (obfs === "gecko") {
+    if (!NodeBuildSupported("Hysteria 2 Gecko", HY2_GECKO_MIN_BUILD)) return "";
+    if (!opts.obfsPassword) {
+      NoteUnsupportedNode("Hysteria 2 Gecko", "缺少混淆密码");
+      return "";
+    }
+  }
   var fields = ["hysteria2=" + server + ":" + port, "password=" + HY2Value(password)];
-  if (opts.obfs === "salamander") {
+  if (obfs) {
     if (!opts.obfsPassword) throw new Error("Missing Hysteria2 obfuscation password");
-    fields.push("salamander-password=" + HY2Value(opts.obfsPassword));
+    fields.push(obfs + "-password=" + HY2Value(opts.obfsPassword));
   }
   if (ports) fields.push("port-hopping=" + ports);
   if (opts.interval !== undefined && opts.interval !== "") {
@@ -3680,7 +3707,8 @@ QuanX 不支持 path/uri 中包含逗号，因此在 QXFix 内部拆字段前，
 */
 // 纠正部分不规范的写法(没有把 tag 写在最后)
 function QXFix(cntf) {
-var cnti = cntf.replace(/\s*tag\s*\=/g,"tag=").replace("chacha20-poly","chacha20-ietf-poly")
+var cnti = cntf.replace(/\s*tag\s*\=/g,"tag=")
+if (!/^\s*hysteria2\s*=/.test(cnti)) cnti = cnti.replace("chacha20-poly","chacha20-ietf-poly")
 try {
   function normalizeQXObfsUriValue(str) {
     var fieldK = "(password|method|udp-relay|udp-over-tcp|fast-open|obfs|obfs-host|obfs-uri|over-tls|tls-host|tls-verification|tls13|aead|tag|username|tls-alpn|server_check_url|tls-cert-sha256|tls-pubkey-sha256|reality-base64-pubkey|reality-hex-shortid|vless-flow)";
@@ -4913,6 +4941,10 @@ function JCheck(cnt) {
 
 
 // Clash parser
+function IsClashGecko(node) {
+  return node && /^(hysteria2|hy2)$/i.test(node.type) && /^gecko$/i.test(node.obfs);
+}
+
 function Clash2QX(cnt) {
   const yaml = new YAML()
   //if (Pdbg==1) { $notify(" Before YAML Parse", "content", cnt)}
@@ -4922,10 +4954,10 @@ function Clash2QX(cnt) {
     aa = aa.replace(new RegExp(patn[4][i], "gmi"),patn[0][i])
   }
   var bb = JSON.parse(aa).proxies
-  // YAMLFix rewrites punctuation and can change mieru credentials. Read those entries from the original text.
-  let originalMieru = null;
-  if (bb.some(node => node && /^mieru$/i.test(node.type))) {
-    try { originalMieru = (JCheck(cnt) ? JSON.parse(cnt) : new YAML().parse(cnt)).proxies; }
+  // YAMLFix rewrites punctuation. Read mieru and Gecko credentials from the original text.
+  let originalProxies = null;
+  if (bb.some(node => node && (/^mieru$/i.test(node.type) || IsClashGecko(node)))) {
+    try { originalProxies = (JCheck(cnt) ? JSON.parse(cnt) : new YAML().parse(cnt)).proxies; }
     catch (e) {}
   }
   if (Pdbg==1) { $notify("After YAML Parse", "content", JSON.stringify(bb))}
@@ -4937,6 +4969,7 @@ function Clash2QX(cnt) {
     try{
       node=bb[i]
       typecc = node.type
+      const original = Array.isArray(originalProxies) && originalProxies.length === nl ? originalProxies[i] : null;
       if (typecc == "ss") {
         node = CSS2QX(node)
       } else if (typecc == "ssr"){
@@ -4953,12 +4986,25 @@ function Clash2QX(cnt) {
         node = CVL2QX(node)
       } else if (typecc == "hysteria2" || typecc == "hy2") {
         if (!NodeBuildSupported("Hysteria 2", HY2_MIN_BUILD)) continue;
+        if (IsClashGecko(node)) {
+          if (!NodeBuildSupported("Hysteria 2 Gecko", HY2_GECKO_MIN_BUILD)) continue;
+          if (!IsClashGecko(original)) {
+            NoteUnsupportedNode("Hysteria 2 Gecko", "无法安全读取 Clash/Mihomo 原始字段");
+            continue;
+          }
+          if (original["obfs-min-packet-size"] !== undefined || original["obfs-max-packet-size"] !== undefined) {
+            NoteUnsupportedNode("Hysteria 2 Gecko", "QuanX 无法转换自定义 Gecko 包大小");
+            continue;
+          }
+          node = original;
+        }
         node = HY2Clash2QX(node);
+        if (!node) continue;
       } else if (/^mieru$/i.test(typecc)) {
         if (version < MIERU_MIN_BUILD) {
           NodeBuildSupported("mieru", MIERU_MIN_BUILD);
-        } else if (Array.isArray(originalMieru) && originalMieru.length === nl && /^mieru$/i.test(originalMieru[i]?.type)) {
-          const mieru = MieruConvert("clash", originalMieru[i]);
+        } else if (original && /^mieru$/i.test(original.type)) {
+          const mieru = MieruConvert("clash", original);
           if (mieru) nodelist.push(mieru);
         } else {
           NoteUnsupportedNode("mieru", "无法安全读取 Clash/Mihomo 原始字段");
