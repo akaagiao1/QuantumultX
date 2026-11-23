@@ -47,6 +47,22 @@ mieru 需要 Quantumult X **1.9.0（build 968）或更新版本**。原生 `mier
 
 可以把原生节点写入 `[server_local]`。模板中有 TCP、TLS 和 REALITY 三种示例，请用服务商提供的地址和凭据替换占位值。
 
+### 转 sing-box（节点转换，只转 outbounds）
+
+Quantumult X 的 `.conf` 和 sing-box 的 JSON 不能直接互读，`Scripts/quanx-to-singbox.js` 只做节点转换：把 `[server_local]` 里的原生节点行转成 sing-box 的 `outbounds`。分流、重写、MITM、脚本没有等价物，不转。
+
+```bash
+# 只出 outbounds 数组
+node Scripts/quanx-to-singbox.js my-nodes.conf --out singbox-outbounds.json
+# 出一份最小完整配置（mixed 入站 + proxy 策略组 + direct/block）
+node Scripts/quanx-to-singbox.js my-nodes.conf --full --out singbox.json
+sing-box check -c singbox.json
+```
+
+能转：hysteria2（含 Salamander、Gecko、端口跳跃、下载带宽）、VLESS Reality/Vision 与 ws/wss/http、Trojan、VMess、Shadowsocks（AEAD 加密方式）、SOCKS5、HTTP、AnyTLS。跳过并在 stderr 说明原因的：mieru（官方 sing-box 没有 mieru 出站）、带 VLESS Encryption 的 VLESS、ShadowsocksR、旧流式加密的 Shadowsocks（`chacha20` 等）、`aead=false` 的 VMess、SOCKS5 over TLS。
+
+仓库自带测试：`node tests/singbox-converter.test.js`。实测用仓库模板 `--include-commented --full` 生成的配置已通过 `sing-box 1.15.0-alpha.13` 的 `sing-box check`（22 个样例节点转成，10 个按上面规则跳过）。
+
 [解析器源码](Scripts/resource-parser.js) · [完整配置示例](QuantumultX_Profiles.conf)
 
 有bug请反馈 [@ShawnKOP_Parser_Bot](https://t.me/Shawn_Parser_Bot) 
