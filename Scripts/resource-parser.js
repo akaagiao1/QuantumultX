@@ -47,6 +47,7 @@
 ⦿ obfs=vhttp/shttp, 指定 obfs=shadowsocks-http 或 obfs=vmess-http 的特殊需求
 ⦿ tsession=0/1/2, 0/1 代表关闭 tls-session-ticket/reuse，2 表示全部关闭
 ⦿ checkurl=xxx , 指定 server_check_url 参数
+⦿ singbox=1/full, 改出 sing-box outbounds JSON（1 只出数组，full 出最小完整配置）；仅 Node 下可用，QuanX 内刷新订阅仍须返回 QuanX 行，见 Scripts/singbox-from-subscription.js
 ⦿ sort=1/-1/x/参数规则, 按节点名 正/逆/随机/参数规则 排序
   ❖ 参数规则是正则表达式或简单关键词, 用"<" 或 ">" 连接
   ❖ sort=🇭🇰>🇸🇬>🇯🇵>🇺🇸 , 靠前排序
@@ -613,6 +614,7 @@ var Pemoji = mark0 && para1.indexOf("emoji=") != -1 ? para1.split("emoji=")[1].s
 var Pdbg = mark0 && para1.indexOf("dbg=") != -1 ? para1.split("dbg=")[1].split("&")[0] : null;
 var Pudp0 = mark0 && para1.indexOf("udp=") != -1 ? para1.split("udp=")[1].split("&")[0] : 0;
 var Ptfo0 = mark0 && para1.indexOf("tfo=") != -1 ? para1.split("tfo=")[1].split("&")[0] : 0;
+var Psingbox = mark0 && para1.indexOf("singbox=") != -1 ? para1.split("singbox=")[1].split("&")[0] : 0; // sing-box 输出：1 只出 outbounds 数组，full 出最小完整配置；仅 Node 下可用
 //var Prname = mark0 && para1.indexOf("rename=") != -1 ? para1.split("rename=")[1].split("&")[0].split("+") : null;
 var Prname = mark0 && /(^|\&)rename=/.test(para1) ? para1.split(/(^|\&)rename\=/)[2].split("&")[0].split("+") : null;
 var Psrename = mark0 && para1.indexOf("srename=") != -1 ? Base64.decode(para1.split("srename=")[1].split("&")[0]) : null; // script rename
@@ -921,6 +923,346 @@ function ParseUnknown(cnt){
 }
 
 
+// ============================================================
+// sing-box 输出（#singbox=1/full）
+// 把归一化后的 QuanX 原生节点行转成 sing-box outbounds JSON。
+// 逻辑与 Scripts/quanx-to-singbox.js 同步，改一处时两处都要改。
+// 仅 Node 下可用：QuanX 内刷新订阅时解析器必须返回 QuanX 行，
+// 返回 JSON 的话 QuanX 认不了，所以这个分支只在 Node 运行
+// （Scripts/singbox-from-subscription.js）时有意义。
+// 能转：hysteria2（含 Salamander、Gecko、端口跳跃、下载带宽）、
+// VLESS Reality/Vision 与 ws/wss/http、Trojan、VMess、Shadowsocks
+// （AEAD 加密方式）、SOCKS5、HTTP、AnyTLS。
+// 跳过并说明原因：mieru（官方 sing-box 没有 mieru 出站）、
+// 带 VLESS Encryption 的 VLESS、ShadowsocksR、旧流式加密的
+// Shadowsocks（chacha20 等）、aead=false 的 VMess、SOCKS5 over TLS。
+// 目标版本：官方 sing-box 1.15。
+// ============================================================
+// NOTE: no top-level `var` assignments in this section: the parser's
+// entry point (Parser()) runs before this section in file order, so
+// only function declarations (hoisted) are visible when it runs.
+function SBParseParams(text) {
+  var params = {};
+  var stray = [];
+  var parts = text.split(/,\s*/);
+  for (var i = 0; i < parts.length; i++) {
+    var eq = parts[i].indexOf("=");
+    if (eq === -1) {
+      if (parts[i].trim()) stray.push(parts[i].trim());
+      continue;
+    }
+    params[parts[i].slice(0, eq).trim()] = parts[i].slice(eq + 1).trim();
+  }
+  if (stray.length) params.__stray = stray;
+  return params;
+}
+
+function SBParseAddress(addr) {
+  var m = addr.match(/^(?:\[([^\]]+)\]|([^:]+)):(\d+)$/);
+  if (!m) return null;
+  return { server: m[1] || m[2], server_port: Number(m[3]) };
+}
+
+function SBBool(v, dflt) {
+  if (v === undefined) return dflt;
+  return v === "true";
+}
+
+// TLS block shared by the TLS-based outbounds.
+function SBTlsBlock(p, serverName) {
+  var tls = { enabled: true };
+  if (serverName) tls.server_name = serverName;
+  if (SBBool(p["tls-verification"], true) === false) tls.insecure = true;
+  if (p["reality-base64-pubkey"]) {
+    tls.reality = { enabled: true, public_key: p["reality-base64-pubkey"] };
+    if (p["reality-hex-shortid"]) tls.reality.short_id = p["reality-hex-shortid"];
+    // sing-box refuses a Reality client without uTLS; chrome matches
+    // the fp=chrome used in vless:// links.
+    tls.utls = { enabled: true, fingerprint: "chrome" };
+  }
+  return tls;
+}
+
+// Transport shared by vless/vmess/trojan.
+function SBTransportOf(p) {
+  var obfs = (p.obfs || "").toLowerCase();
+  var host = p["obfs-host"] || p["tls-host"];
+  var path = p["obfs-uri"] || "/";
+  var transport;
+  var tls;
+  if (obfs === "ws" || obfs === "wss") {
+    // sing-box calls the WebSocket transport "ws", not "websocket".
+    transport = { type: "ws", path: path };
+    if (host) transport.headers = { Host: host };
+    if (obfs === "wss") tls = SBTlsBlock(p, host);
+  } else if (obfs === "http") {
+    transport = { type: "http", path: path };
+    if (host) transport.host = [host];
+  } else if (obfs === "over-tls" || p["over-tls"] === "true") {
+    tls = SBTlsBlock(p, host);
+  }
+  return { transport: transport, tls: tls };
+}
+
+function SBNetworkOf(p) {
+  return SBBool(p["udp-relay"], true) === false ? "tcp" : undefined;
+}
+
+function SBConvertHysteria2(addr, p) {
+  if (!p.password) return { skip: "missing password" };
+  if (p["salamander-password"] && p["gecko-password"]) {
+    return { skip: "gecko-password and salamander-password cannot both be set" };
+  }
+  var out = { type: "hysteria2", server: addr.server, server_port: addr.server_port, password: p.password };
+  if (p["salamander-password"]) {
+    out.obfs = { type: "salamander", password: p["salamander-password"] };
+  } else if (p["gecko-password"]) {
+    out.obfs = { type: "gecko", password: p["gecko-password"] };
+  }
+  if (p["port-hopping"]) {
+    // A combined range ("20000-30000,40000-50000") arrives here as a
+    // stray token after the comma split; skip it instead of silently
+    // keeping only the first range.
+    var stray = p.__stray || [];
+    for (var i = 0; i < stray.length; i++) {
+      if (/^\d+-\d+$/.test(stray[i])) {
+        return { skip: "combined port-hopping ranges cannot convert: " + p["port-hopping"] };
+      }
+    }
+    var m = p["port-hopping"].match(/^(\d+)-(\d+)$/);
+    if (!m) return { skip: "port-hopping is not a single continuous range: " + p["port-hopping"] };
+    out.server_ports = [m[1] + ":" + m[2]];
+    out.hop_interval = (Number(p["port-hopping-interval"] || 30)) + "s";
+  }
+  if (p["download-bandwidth"]) {
+    var n = Number(p["download-bandwidth"]);
+    if (isFinite(n)) out.down_mbps = n;
+  }
+  var net = SBNetworkOf(p);
+  if (net) out.network = net;
+  out.tls = SBTlsBlock(p, p["tls-host"] || addr.server);
+  return { outbound: out };
+}
+
+function SBConvertVless(addr, p) {
+  if (!p.password) return { skip: "missing password (uuid)" };
+  if (p.encryption && p.encryption !== "none") {
+    return { skip: "VLESS Encryption is not supported by official sing-box" };
+  }
+  if (p.method && p.method !== "none") {
+    return { skip: "unsupported vless method: " + p.method };
+  }
+  var out = { type: "vless", server: addr.server, server_port: addr.server_port, uuid: p.password };
+  if (p["vless-flow"]) out.flow = p["vless-flow"];
+  var t = SBTransportOf(p);
+  if (t.transport) out.transport = t.transport;
+  if (!t.tls && (p["reality-base64-pubkey"] || p["tls-host"])) {
+    out.tls = SBTlsBlock(p, p["tls-host"] || p["obfs-host"] || addr.server);
+  } else if (t.tls) {
+    out.tls = t.tls;
+  }
+  if (out.tls && out.tls.reality && !out.tls.server_name) {
+    out.tls.server_name = p["obfs-host"] || addr.server;
+  }
+  var net = SBNetworkOf(p);
+  if (net) out.network = net;
+  return { outbound: out };
+}
+
+function SBConvertTrojan(addr, p) {
+  if (!p.password) return { skip: "missing password" };
+  var out = { type: "trojan", server: addr.server, server_port: addr.server_port, password: p.password };
+  var t = SBTransportOf(p);
+  if (t.transport) out.transport = t.transport;
+  if (t.tls) out.tls = t.tls;
+  var net = SBNetworkOf(p);
+  if (net) out.network = net;
+  return { outbound: out };
+}
+
+function SBConvertVmess(addr, p) {
+  if (!p.password) return { skip: "missing password (uuid)" };
+  if (p.aead === "false") {
+    return { skip: "aead=false (legacy non-AEAD VMess) has no sing-box equivalent" };
+  }
+  var securityMap = {
+    "aes-128-gcm": "aes-128-gcm",
+    "chacha20-poly1305": "chacha20-poly1305",
+    "chacha20-ietf-poly1305": "chacha20-poly1305",
+    "none": "none",
+    "auto": "auto"
+  };
+  var out = {
+    type: "vmess", server: addr.server, server_port: addr.server_port,
+    uuid: p.password, security: securityMap[(p.method || "auto").toLowerCase()] || "auto", alter_id: 0
+  };
+  var t = SBTransportOf(p);
+  if (t.transport) out.transport = t.transport;
+  if (t.tls) out.tls = t.tls;
+  else if (p["tls-host"]) out.tls = SBTlsBlock(p, p["tls-host"]);
+  var net = SBNetworkOf(p);
+  if (net) out.network = net;
+  return { outbound: out };
+}
+
+function SBConvertShadowsocks(addr, p) {
+  if (p["ssr-protocol"]) return { skip: "ShadowsocksR is not supported by sing-box" };
+  if (!p.method || !p.password) return { skip: "missing method or password" };
+  // sing-box 1.15 only accepts AEAD (and 2022-blake3) methods;
+  // legacy stream ciphers such as chacha20 / aes-128-cfb are gone.
+  var allowedMethods = [
+    "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305",
+    "xchacha20-ietf-poly1305", "none",
+    "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm",
+    "2022-blake3-chacha20-poly1305"
+  ];
+  if (allowedMethods.indexOf(p.method.toLowerCase()) === -1) {
+    return { skip: "unsupported shadowsocks method in sing-box 1.15: " + p.method };
+  }
+  var out = {
+    type: "shadowsocks", server: addr.server, server_port: addr.server_port,
+    method: p.method, password: p.password
+  };
+  var obfs = (p.obfs || "").toLowerCase();
+  if (obfs === "http" || obfs === "tls") {
+    out.plugin = "obfs-local";
+    out.plugin_opts = "obfs=" + obfs +
+      (p["obfs-host"] ? ";obfs-host=" + p["obfs-host"] : "") +
+      (p["obfs-uri"] ? ";obfs-uri=" + p["obfs-uri"] : "");
+  } else if (obfs === "ws" || obfs === "wss") {
+    out.plugin = "v2ray-plugin";
+    out.plugin_opts = (obfs === "wss" ? "tls;" : "") +
+      (p["obfs-host"] ? "host=" + p["obfs-host"] + ";" : "") +
+      "path=" + (p["obfs-uri"] || "/");
+  } else if (obfs && obfs !== "plain") {
+    return { skip: "unsupported shadowsocks obfs: " + obfs };
+  }
+  var net = SBNetworkOf(p);
+  if (net) out.network = net;
+  return { outbound: out };
+}
+
+function SBConvertSocks5(addr, p) {
+  // sing-box's socks outbound has no tls field: SOCKS5 over TLS has no
+  // equivalent there, so skip it rather than emit a plaintext node.
+  if (p["over-tls"] === "true") {
+    return { skip: "SOCKS5 over TLS has no sing-box equivalent" };
+  }
+  var out = { type: "socks", version: "5", server: addr.server, server_port: addr.server_port };
+  if (p.username) out.username = p.username;
+  if (p.password) out.password = p.password;
+  var net = SBNetworkOf(p);
+  if (net) out.network = net;
+  return { outbound: out };
+}
+
+function SBConvertHttp(addr, p) {
+  var out = { type: "http", server: addr.server, server_port: addr.server_port };
+  if (p.username) out.username = p.username;
+  if (p.password) out.password = p.password;
+  if (p["over-tls"] === "true") out.tls = SBTlsBlock(p, p["tls-host"] || addr.server);
+  return { outbound: out };
+}
+
+function SBConvertAnytls(addr, p) {
+  if (!p.password) return { skip: "missing password" };
+  var out = {
+    type: "anytls", server: addr.server, server_port: addr.server_port,
+    password: p.password, tls: SBTlsBlock(p, p["tls-host"] || addr.server)
+  };
+  return { outbound: out };
+}
+
+function SBConvertLine(line) {
+  var m = line.match(/^([a-z0-9]+)=(.+)$/);
+  if (!m) return { skip: "not a server line" };
+  var type = m[1];
+  if (type === "mieru") {
+    return { skip: "official sing-box has no mieru outbound", type: type };
+  }
+  var parts = m[2].split(/,\s*/);
+  var addr = SBParseAddress(parts[0]);
+  if (!addr) return { skip: "bad address: " + parts[0], type: type };
+  var p = SBParseParams(parts.slice(1).join(", "));
+  var tag = p.tag || (type + "-" + addr.server);
+  // Switch dispatch (not a lookup object): see the NOTE above.
+  var r;
+  if (type === "hysteria2") r = SBConvertHysteria2(addr, p);
+  else if (type === "vless") r = SBConvertVless(addr, p);
+  else if (type === "trojan") r = SBConvertTrojan(addr, p);
+  else if (type === "vmess") r = SBConvertVmess(addr, p);
+  else if (type === "shadowsocks") r = SBConvertShadowsocks(addr, p);
+  else if (type === "socks5") r = SBConvertSocks5(addr, p);
+  else if (type === "http") r = SBConvertHttp(addr, p);
+  else if (type === "anytls") r = SBConvertAnytls(addr, p);
+  else return { skip: "unknown type: " + type, type: type };
+  if (r.skip) return { skip: r.skip, type: type, tag: tag };
+  var out = r.outbound;
+  out.tag = tag;
+  if (SBBool(p["fast-open"], false)) out.tcp_fast_open = true;
+  return { outbound: out, type: type, tag: tag };
+}
+
+function SBBuildFullConfig(outbounds) {
+  var tags = outbounds.map(function (o) { return o.tag; });
+  return {
+    $schema: "https://sing-box.sagernet.org/schema.json",
+    log: { level: "info" },
+    dns: {
+      servers: [
+        { tag: "dns-local", type: "local" },
+        { tag: "dns-proxy", type: "https", server: "1.1.1.1", detour: "proxy" }
+      ]
+    },
+    inbounds: [
+      { type: "mixed", tag: "mixed-in", listen: "127.0.0.1", listen_port: 1080 }
+    ],
+    outbounds: outbounds.concat([
+      { type: "direct", tag: "direct" },
+      { type: "block", tag: "block" },
+      { type: "selector", tag: "proxy", outbounds: tags }
+    ]),
+    route: {
+      final: "proxy",
+      auto_detect_interface: true,
+      // 1.12+ requires a domain resolver for outbounds addressed by
+      // domain name; dns-local avoids a proxy detour loop here.
+      default_domain_resolver: { server: "dns-local" }
+    }
+  };
+}
+
+// Convert normalized QuanX server lines (one per line) to sing-box JSON.
+// Returns { json, skipped, converted }.
+function SBConvertLines(text, full) {
+  var lines = text.split("\n").map(function (l) { return l.trim(); }).filter(Boolean);
+  var outbounds = [];
+  var skipped = [];
+  var seenTags = {};
+  for (var i = 0; i < lines.length; i++) {
+    var r = SBConvertLine(lines[i]);
+    if (r.skip) {
+      skipped.push((r.tag || r.type || lines[i]) + " (" + (r.type || "?") + "): " + r.skip);
+      continue;
+    }
+    var tag = r.outbound.tag;
+    if (seenTags[tag]) {
+      var n = 2;
+      while (seenTags[tag + "-" + n]) n++;
+      tag = tag + "-" + n;
+      r.outbound.tag = tag;
+    }
+    seenTags[tag] = 1;
+    outbounds.push(r.outbound);
+  }
+  var doc = full ? SBBuildFullConfig(outbounds) : outbounds;
+  return { json: JSON.stringify(doc, null, 2), skipped: skipped, converted: outbounds.length };
+}
+// ============================================================
+// end sing-box 输出
+// ============================================================
+
+
 function ResourceParse() {
   var rewriteFailures = [];
   //预处理，分流/重写等处理完成
@@ -1035,6 +1377,15 @@ function ResourceParse() {
       total = para1.indexOf("node_index_prefix")!=-1 ?index_handle(total):total // 节点序号操作
       //$notify("before","haha",total)
       total = TagCheck_QX(total).join("\n") //节点名检查
+      if (Psingbox) { // sing-box 输出：归一化后的 QuanX 行转 sing-box outbounds JSON；仅 Node 下可用
+        var sb = SBConvertLines(total, Psingbox === "full");
+        if (sb.skipped.length) {
+          $notify("⚠️ sing-box 跳过 " + sb.skipped.length + " 条节点 ➟ ⟦" + subtag + "⟧", "⚠️ 官方 sing-box 无对应出站或无等价写法", sb.skipped.join("\n"), bug_link);
+        }
+        total = Base64.encode(sb.json);
+        $done({ content: total });
+        return total;
+      }
       if (PUOT==1) { total = total.split("\n").map(UOT).join("\n")}
       if (Pcnt == 1 && total!=undefined) {$notify("⟦" + subtag + "⟧"+"解析后最终返回内容" , "节点数量: " +total.split("\n").length, total)}
       total = PRelay==""? Base64.encode(total) : ServerRelay(total.split("\n"),PRelay) //强制节点类型 base64 加密后再导入 Quantumult X, 如果是relay，则转换成分流类型

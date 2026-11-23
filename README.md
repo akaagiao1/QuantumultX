@@ -49,19 +49,26 @@ mieru 需要 Quantumult X **1.9.0（build 968）或更新版本**。原生 `mier
 
 ### 转 sing-box（节点转换，只转 outbounds）
 
-Quantumult X 的 `.conf` 和 sing-box 的 JSON 不能直接互读，`Scripts/quanx-to-singbox.js` 只做节点转换：把 `[server_local]` 里的原生节点行转成 sing-box 的 `outbounds`。分流、重写、MITM、脚本没有等价物，不转。
+Quantumult X 的 `.conf` 和 sing-box 的 JSON 不能直接互读，转换只做节点：把解析器已经归一化好的 QuanX 行转成 sing-box 的 `outbounds`。分流、重写、MITM、脚本没有等价物，不转。
+
+**主路：解析器 `#singbox` 开关。**在订阅链接后加 `#singbox=1`（只出 outbounds 数组）或 `#singbox=full`（出最小完整配置），再用 Node 跑解析器：
 
 ```bash
-# 只出 outbounds 数组
-node Scripts/quanx-to-singbox.js my-nodes.conf --out singbox-outbounds.json
-# 出一份最小完整配置（mixed 入站 + proxy 策略组 + direct/block）
-node Scripts/quanx-to-singbox.js my-nodes.conf --full --out singbox.json
+node Scripts/singbox-from-subscription.js my-sub.txt --full --out singbox.json
 sing-box check -c singbox.json
 ```
 
-能转：hysteria2（含 Salamander、Gecko、端口跳跃、下载带宽）、VLESS Reality/Vision 与 ws/wss/http、Trojan、VMess、Shadowsocks（AEAD 加密方式）、SOCKS5、HTTP、AnyTLS。跳过并在 stderr 说明原因的：mieru（官方 sing-box 没有 mieru 出站）、带 VLESS Encryption 的 VLESS、ShadowsocksR、旧流式加密的 Shadowsocks（`chacha20` 等）、`aead=false` 的 VMess、SOCKS5 over TLS。
+这样订阅、Clash YAML、Surge、`hy2://` / `vless://` 链接这些解析器本来就能吃的格式，都能直接转。注意：QuanX 内刷新订阅时解析器必须返回 QuanX 行，所以这个开关只在 Node 下有效，QuanX 里加了也没用。
 
-仓库自带测试：`node tests/singbox-converter.test.js`。实测用仓库模板 `--include-commented --full` 生成的配置已通过 `sing-box 1.15.0-alpha.13` 的 `sing-box check`（22 个样例节点转成，10 个按上面规则跳过）。
+**另一条路：直接转原生行。**`Scripts/quanx-to-singbox.js` 只认 `[server_local]` 的原生节点行，不走订阅解析：
+
+```bash
+node Scripts/quanx-to-singbox.js my-nodes.conf --full --out singbox.json
+```
+
+能转：hysteria2（含 Salamander、Gecko、端口跳跃、下载带宽）、VLESS Reality/Vision 与 ws/wss/http、Trojan、VMess、Shadowsocks（AEAD 加密方式）、SOCKS5、HTTP、AnyTLS。跳过并说明原因的：mieru（官方 sing-box 没有 mieru 出站）、带 VLESS Encryption 的 VLESS、ShadowsocksR、旧流式加密的 Shadowsocks（`chacha20` 等）、`aead=false` 的 VMess、SOCKS5 over TLS。
+
+仓库自带测试：`node tests/singbox-parser.test.js`（解析器开关）与 `node tests/singbox-converter.test.js`（独立脚本）。实测用仓库模板 `--include-commented --full` 生成的配置已通过 `sing-box 1.15.0-alpha.13` 的 `sing-box check`（22 个样例节点转成，10 个按上面规则跳过）；混合订阅（hy2 + VLESS Reality + mieru）与 Clash YAML 经解析器开关转出的 `--full` 配置同样通过 check。
 
 [解析器源码](Scripts/resource-parser.js) · [完整配置示例](QuantumultX_Profiles.conf)
 
