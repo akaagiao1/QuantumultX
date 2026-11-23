@@ -248,6 +248,10 @@ var body = $response.body;
 var obj = JSON.parse(body);
 var title = flags.get(obj["countryCode"]) + " " + City_ValidCheck(obj["city"]); //+Area_check(obj['country']);
 var subtitle = ISP_ValidCheck(obj["org"] || obj.as);
+// Quantumult X 1.9.0 (build 955+)：geo_location_checker 可读 $environment.params（被测节点 tag），拼到 subtitle 前面；typeof 守卫兼容旧版
+if (typeof $environment !== 'undefined' && $environment.params) {
+  subtitle = $environment.params + ' · ' + subtitle;
+}
 var ip = obj["query"];
 var description =
   "服务商:" +
