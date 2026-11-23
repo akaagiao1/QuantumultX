@@ -1,5 +1,5 @@
 /** 
-☑️ 资源解析器 ©𝐒𝐡𝐚𝐰𝐧  ⟦2026-11-20 UTC+8⟧
+☑️ 资源解析器 ©𝐒𝐡𝐚𝐰𝐧  ⟦2026-11-23 UTC+8⟧
 ----------------------------------------------------------
 🛠 发现 𝐁𝐔𝐆 请反馈: https://t.me/ShawnKOP_Parser_Bot
 ⛳️ 关注 🆃🅶 相关频道: https://t.me/QuanX_API
@@ -8,7 +8,7 @@
 
 🤖 主要功能: 
 ❶ 将其它格式的⟦服务器订阅⟧解析成 𝐐𝐮𝐚𝐧𝐭𝐮𝐦𝐮𝐥𝐭 𝐗 格式
-☑︎ 支持 𝐕2𝐫𝐚𝐲𝐍/𝗦𝗦(𝗥/𝗗)/𝗧𝗿𝗼𝗷𝗮𝗻/𝐕𝐋𝗲𝐬𝐬/𝗛𝗧𝗧𝗣(𝗦)/𝗔𝗻𝘆𝗧𝗟𝗦/Hysteria 2/𝗤𝘂𝗮𝗻𝘁𝘂𝗺𝘂𝗹𝘁(𝗫)/𝗦𝘂𝗿𝗴𝗲/𝐂𝐥𝐚𝐬𝐡/𝐒𝐡𝐚𝐝𝐨𝐰𝐫𝐨𝐜𝐤𝐞𝐭/𝐋𝐨𝐨𝐧 格式
+☑︎ 支持 𝐕2𝐫𝐚𝐲𝐍/𝗦𝗦(𝗥/𝗗)/𝗧𝗿𝗼𝗷𝗮𝗻/𝐕𝐋𝗲𝐬𝐬/𝗛𝗧𝗧𝗣(𝗦)/𝗔𝗻𝘆𝗧𝗟𝗦/Hysteria 2/mieru/𝗤𝘂𝗮𝗻𝘁𝘂𝗺𝘂𝗹𝘁(𝗫)/𝗦𝘂𝗿𝗴𝗲/𝐂𝐥𝐚𝐬𝐡/𝐒𝐡𝐚𝐝𝐨𝐰𝐫𝐨𝐜𝐤𝐞𝐭/𝐋𝐨𝐨𝐧 格式
 ☑︎ 提供说明 1⃣️ 中的可选个性化参数(筛选、重命名 等)
 ☑︎ 节点扫码识别疑似订阅链接时，点击通知跳转添加节点订阅
 ❷ 𝗿𝗲𝘄𝗿𝗶𝘁𝗲(重写) & 𝗳𝗶𝗹𝘁𝗲𝗿(分流) 的 转换 & 筛选 
@@ -110,6 +110,9 @@ resource_parser_url = https://raw.githubusercontent.com/akaagiao1/QuantumultX/ma
    支持 hysteria2=、hy2://、hysteria2://（含 Base64 订阅）及 Clash/Mihomo 的 type: hysteria2。
    支持 Salamander、下载带宽和单个端口范围的跳跃。已有原生节点可直接填进 [server_local]。
    例如 hy2://pwd@example.com:443/?sni=example.com#HY2
+3️⃣ mieru 需 Quantumult X 1.9.0 (build 968) 或更新版本。
+   支持原生 mieru=（TCP/TLS/REALITY）、单端口 TCP 的 mierus:// 简单分享链接及 Clash/Mihomo 的 type: mieru。
+   UDP 中继通过 TCP。完整 mieru:// 客户端配置、UDP 传输及不能转换的选项会提示并跳过。
 ⚠️ 若提示没有自定义解析器，请确认 [general] 中的地址已保存，再刷新节点资源。
 
 ------------------------------
@@ -681,6 +684,10 @@ function TLSCertParam(Pcert0, fallback) {
 }
 
 const HY2_MIN_BUILD = 965;
+const MIERU_MIN_BUILD = 968;
+const MIERU_NATIVE = /^mieru\s*=/i;
+const MIERU_URI = /^mierus?:\/\//i;
+const MIERU_TYPE_LABELS = ["𝐦𝐢𝐞𝐫𝐮", "𝐌𝐈𝐄𝐑𝐔", "🅜🅘🅔🅡🅤", "🅼🅸🅴🆁🆄", "ⓜⓘⓔⓡⓤ", "🄼🄸🄴🅁🅄", "𝕞𝕚𝕖𝕣𝕦", "ᴹⁱᵉʳᵘ", "MIERU"];
 const HY2_TYPE_LABELS = ["𝐡𝐲𝟐", "𝐇𝐘𝟐", "🅗🅨②", "🅷🆈2", "ⓗⓨ②", "🄷🅈2", "𝕙𝕪𝟚", "ʰʸ²", "HY2"];
 var PNS=0 // 不支持的节点统计
 var NSList=["当前订阅内，不支持以下节点 ↘️ \n"] // 不支持节点列表
@@ -1177,14 +1184,14 @@ function Type_Check(subs) {
     var type = "unknown"
     var RuleK = ["host,", "-suffix,", "domain,", "domain-regex,", "-keyword,", "ip-cidr,", "ip-cidr6,",  "geoip,", "user-agent,", "ip6-cidr,", "ip-asn", "and,", "or,", "not,"];
     var DomainK = ["domain-set,"]
-    var QuanXK = ["shadowsocks=", "trojan=", "vmess=", "http=", "socks5=", "vless=","anytls=","hysteria2="];
+    var QuanXK = ["shadowsocks=", "trojan=", "vmess=", "http=", "socks5=", "vless=","anytls=","hysteria2=","mieru="];
     var SurgeK = ["=ss,", "=vmess,", "=trojan,", "=http,", "=custom,", "=https,", "=shadowsocks", "=shadowsocksr", "=sock5", "=sock5-tls","=anytls"];
     var ClashK = ["proxies:","\"proxies\":"]
-    var SubK = ["dm1lc3M", "c3NyOi8v", "CnNzOi8", "dHJvamFu", "c3M6Ly", "c3NkOi8v", "c2hhZG93", "aHR0cDovLw", "aHR0cHM6L", "CnRyb2phbjo", "aHR0cD0", "aHR0cCA","U1RBVFVT","dmxlc3M6","aHlzdGVyaWEyOi8v","aHkyOi8v"];
+    var SubK = ["dm1lc3M", "c3NyOi8v", "CnNzOi8", "dHJvamFu", "c3M6Ly", "c3NkOi8v", "c2hhZG93", "aHR0cDovLw", "aHR0cHM6L", "CnRyb2phbjo", "aHR0cD0", "aHR0cCA","U1RBVFVT","dmxlc3M6","aHlzdGVyaWEyOi8v","aHkyOi8v","bWllcnU9","bWllcnU6Ly","bWllcnVzOi8v"];
     var RewriteK = [" url 302", " url 307", " url reject", " url script", " url req", " url res", " url echo", " url-and-header 302", " url-and-header 307", " url-and-header reject", " url-and-header script", " url-and-header req", " url-and-header res", " url-and-header echo", " url jsonjq"] // quantumult X 类型 rewrite
     var JsonJQK = [" response-body-json-jq ", " request-body-json-jq ", " response-body-json-del ", " response-body-json-replace ", " http-response-jq ", " http-request-jq "] // 需要转换成 QuanX jsonjq 的 rewrite
     // Hysteria2 与 hy2 URI 均作为节点订阅处理。
-    var SubK2 = ["ss://", "vmess://", "ssr://", "trojan://", "ssd://", "\nhttps://", "\nhttp://","socks://","ssocks://","vless://","anytls://","wireguard://","wg://","tuic://","hysteria2://","hy2://"];
+    var SubK2 = ["ss://", "vmess://", "ssr://", "trojan://", "ssd://", "\nhttps://", "\nhttp://","socks://","ssocks://","vless://","anytls://","wireguard://","wg://","tuic://","hysteria2://","hy2://","mieru://","mierus://"];
     var ModuleK = ["[Script]", "[Rule]", "[URL Rewrite]", "[Body Rewrite]", "[Map Local]", "\nhttp-r", "script-path"]
     var QXProfile = ["[filter_local]","[filter_remote]","[server_local]","[server_remote]"]
     var html = "DOCTYPE html"
@@ -1232,7 +1239,7 @@ function Type_Check(subs) {
     } else if (subsn.length >= 1 && SubK2.some(NodeCheck2) && !/\[(Proxy|filter_local)\]/.test(subs)) { //未b64加密的多行URI 组合订阅
       typec = "server-uri"
       type= (typeQ == "unsupported" || typeQ =="server" || typeQ =="uri") ? "Subs":"wrong-field"
-    } else if ((subi.indexOf("tag=") != -1 && QuanXK.some(NodeCheck) && !/\[(Proxy|filter_local)\]/.test(subs)) || typeU =="list") {
+    } else if (((subi.indexOf("tag=") != -1 && QuanXK.some(NodeCheck) || subsn.some(row => MIERU_NATIVE.test(row.trim()))) && !/\[(Proxy|filter_local)\]/.test(subs)) || typeU =="list") {
       typec = "server-quanx"
       type = (typeQ == "unsupported" || typeQ =="server" || typeQ =="uri")? "Subs":"wrong-field" // QuanX list
     } else if (subs.indexOf("[Proxy]") != -1) {
@@ -1287,7 +1294,7 @@ function TagCheck_QX(content) {
   typefix = {"shadowsocks":["𝐬𝐬","𝐒𝐒","🅢🅢","🆂🆂","ⓢⓢ","🅂🅂","SS"],"shadowsocksr":["𝐬𝐬𝐫","𝐒𝐒𝐑","🅢🅢🅡","🆂🆂🆁","ⓢⓢⓡ","🅂🅂🅁","SSR"],
     "vmess":["𝐯𝐦𝐞𝐬𝐬","𝐕𝐌𝐄𝐒𝐒","🅥🅜🅔🅢🅢","🆅🅼🅴🆂🆂","ⓥⓜⓔⓢⓢ","🅅🄼🄴🅂🅂","VMESS"],"trojan":["𝐭𝐫𝐨𝐣𝐚𝐧","𝐓𝐑𝐎𝐉𝐀𝐍","🅣🅡🅞🅙🅐🅝","🆃🆁🅾🅹🅰🅽","ⓣⓡⓞⓙⓐⓝ","🅃🅁🄾🄹🄰🄽","TROJAN"],
     "http":["𝐡𝐭𝐭𝐩","𝐇𝐓𝐓𝐏","🅗🅣🅣🅟","🅷🆃🆃🅿","ⓗⓣⓣⓟ","🄷🅃🅃🄿","HTTP"],"socks5":["𝐬𝐨𝗰𝗸𝐬","𝐒𝐎𝐂𝐊𝐒","🅢🅞🅒🅚🅢","🆂🅾🅲🅺🆂","ⓢⓄⒸⓀⓢ","🅂🄾🄲🄺🅂","SOCKS"],
-    "vless":["𝐯𝐥𝐞𝐬𝐬","𝐕𝐋𝐄𝐒𝐒","🅥🅛🅔🅢🅢","🆅🅻🅴🆂🆂","ⓥⓛⓔⓢⓢ","🅅🄻🄴🅂🅂","VLESS"],"anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝖠𝖭𝖸𝖳𝖫𝖲"], "hysteria2": HY2_TYPE_LABELS
+    "vless":["𝐯𝐥𝐞𝐬𝐬","𝐕𝐋𝐄𝐒𝐒","🅥🅛🅔🅢🅢","🆅🅻🅴🆂🆂","ⓥⓛⓔⓢⓢ","🅅🄻🄴🅂🅂","VLESS"],"anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝖠𝖭𝖸𝖳𝖫𝖲"], "hysteria2": HY2_TYPE_LABELS, "mieru": MIERU_TYPE_LABELS
   } // type
   console.log(content)
     var Olist = content.map(item =>item.trim())//.replace(/\s{2,}/g," "))
@@ -1299,19 +1306,20 @@ function TagCheck_QX(content) {
         var item = Olist[i] ? Olist[i] : ""
         typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? typefix["shadowsocksr"] : typefix["shadowsocks"]
         if (item.replace(/ /gm, "").indexOf("tag=") != -1) {
-            var nl = item.slice(item.indexOf("tag"))
+            var tagStart = MIERU_NATIVE.test(item) ? item.indexOf(", tag=") + 2 : item.indexOf("tag")
+            var nl = item.slice(tagStart)
             var nm = nl.slice(nl.indexOf("=") + 1)
             if (nm == "") { //空名
                 tp = typefix[item.split("=")[0].trim()][3]
                 nm = tp + " | " + item.split("=")[1].split(",")[0].split(":")[0]
-                item = item.split("tag")[0] + "tag=" + nm.replace("shadowsocks", "ss")
+                item = item.slice(0, tagStart) + "tag=" + nm.replace("shadowsocks", "ss")
                 nulllist.push(nm.replace("shadowsocks", "ss"))
             }
             var ni = 0
             while (nmlist.indexOf(nm) != -1) { //重名情形
               //$notify("重名",nm,nmlist)
                 nm = ni==0? nm+ NoReplace(ni+1):nm.split(" ").slice(0,nm.split(" ").length-2).join(" ") + NoReplace(ni+1)
-                item = Pdel != 1 ? item.split("tag")[0] + "tag=" + nm : ""
+                item = Pdel != 1 ? item.slice(0, tagStart) + "tag=" + nm : ""
                 ni = ni + 1
             }
             if (ni != 0) { duplist.push(nm) }
@@ -1419,7 +1427,7 @@ function titleCase(str) {
 // 类型前缀/后缀
 function type_prefix(item) {
   if(item.trim()!="") {
-    typefix = {"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","socks5":"「𝐬𝐨𝗰𝗸𝐬」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」","hysteria2":"「" + HY2_TYPE_LABELS[0] + "」"}
+    typefix = {"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","socks5":"「𝐬𝐨𝗰𝗸𝐬」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」","hysteria2":"「" + HY2_TYPE_LABELS[0] + "」","mieru":"「" + MIERU_TYPE_LABELS[0] + "」"}
     typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? "「𝐬𝐬𝐫」" : "「𝐬𝐬」"
     tp = typefix[item.split("=")[0].trim()]
     return [[item.split("tag=")[0]+
@@ -1428,7 +1436,7 @@ function type_prefix(item) {
 }
 function type_suffix(item) {
   if(item.trim()!=""){
-    typefix={"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」","hysteria2":"「" + HY2_TYPE_LABELS[0] + "」"}
+    typefix={"shadowsocks":"「𝐬𝐬」","vmess":"「𝐯𝐦𝐞𝐬𝐬」","trojan":"「𝐭𝐫𝐨𝐣𝐚𝐧」","http":"「𝐡𝐭𝐭𝐩」","vless":"「𝐯𝐥𝐞𝐬𝐬」","anytls":"「𝐚𝐧𝐲𝐭𝐥𝐬」","hysteria2":"「" + HY2_TYPE_LABELS[0] + "」","mieru":"「" + MIERU_TYPE_LABELS[0] + "」"}
     typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? "「𝐬𝐬𝐫」" : "「𝐬𝐬」"
     tp = typefix[item.split("=")[0].trim()]
     return [item, tp].join(" ")
@@ -1447,7 +1455,7 @@ function getnode_type(item,ind) {
       "socks5":["𝐬𝐨𝗰𝗸𝐬","𝐒𝐎𝐂𝐊𝐒","🅢🅞🅒🅚🅢","🆂🅾🅲🅺🆂","ⓢⓞⓒⓚⓢ","🅂🄾🄲🄺🅂","𝕤𝕠𝕔𝕜𝕤","ˢᵒᶜᵏˢ","SOCKS"],
       "vless":["𝐯𝐥𝐞𝐬𝐬","𝐕𝐋𝐄𝐒𝐒","🅥🅛🅔🅢🅢","🆅🅻🅴🆂🆂","ⓥⓛⓔⓢⓢ","🅅🄻🄴🅂🅂","𝕍𝕝𝕖𝕤𝕤","ᵛˡᵉˢˢ","VLESS"],
       "anytls":["𝐚𝐧𝐲𝐭𝐥𝐬","𝐀𝐍𝐘𝐓𝐋𝐒","🅐🅝🅨🅣🅛🅢","🅰🅽🆈🆃🅻🆂","ⓐⓝⓨⓣⓛⓢ","🄰🄽🅈🅃🄻🅂","𝔸𝕟𝕪𝕥𝕝𝕤","ᴬⁿʸᵗˡˢ","𝖠𝖭𝖸𝖳𝖫𝖲"],
-      "hysteria2": HY2_TYPE_LABELS
+      "hysteria2": HY2_TYPE_LABELS, "mieru": MIERU_TYPE_LABELS
     }
     typefix["shadowsocks"]=item.indexOf("ssr-protocol")!=-1? typefix["shadowsocksr"] : typefix["shadowsocks"]
     tp = typefix[item.split("=")[0].trim()][ind]
@@ -2662,6 +2670,12 @@ function Subs2QX(subs, Pudp, Ptfo, Pcert0, PTls13) {
     for (var i = 0; i < list0.length; i++) {
         var node = ""
         //if (Pdbg) {$notify(i, "node", list0[i])}
+        const line = list0[i].trim();
+        if (MIERU_NATIVE.test(line) || MIERU_URI.test(line)) {
+          const converted = MieruConvert(MIERU_NATIVE.test(line) ? "native" : "uri", line);
+          if (converted) QXlist.push(converted);
+          continue;
+        }
         if (list0[i].trim().length > 3 && !/\;|\/|\#/.test(list0[i][0]) && list0[i].indexOf(" url ")==-1) {
             var type = list0[i].split("://")[0].trim()
             var listi = list0[i].replace(/ /g, "")
@@ -2672,7 +2686,7 @@ function Subs2QX(subs, Pudp, Ptfo, Pcert0, PTls13) {
             const NodeCheck2 = (item) => listi.indexOf(item) != -1;
             var isHY2URI = /^(?:hysteria2|hy2):\/\//i.test(list0[i].trim());
             var isHY2Native = /^hysteria2\s*=/.test(list0[i].trim());
-            if ((isHY2URI || isHY2Native) && !HY2BuildSupported()) continue;
+            if ((isHY2URI || isHY2Native) && !NodeBuildSupported("Hysteria 2", HY2_MIN_BUILD)) continue;
             try {
               if (Pdbg) {$notify(i, type, list0[i])}
                 if (type == "vmess" && (list0[i].indexOf("remark=") == -1 && list0[i].indexOf("remarks=") == -1) && !/(obfs|alterId|type|\@)\=/.test(list0[i])) {
@@ -3217,10 +3231,13 @@ function SSR2QX(subs, Pudp, Ptfo) {
     return QX;
 }
 
-function HY2BuildSupported() {
-  if (version >= HY2_MIN_BUILD) return true;
+function NoteUnsupportedNode(protocol, reason) {
   PNS += 1;
-  NSList.push(numToEmoji10(PNS) + "Hysteria 2（需 Quantumult X 1.9.0 / build " + HY2_MIN_BUILD + " 或更新版本）");
+  NSList.push(numToEmoji10(PNS) + protocol + "（" + reason + "）");
+}
+function NodeBuildSupported(protocol, minBuild) {
+  if (version >= minBuild) return true;
+  NoteUnsupportedNode(protocol, "需 Quantumult X 1.9.0 / build " + minBuild + " 或更新版本");
   return false;
 }
 
@@ -3283,6 +3300,115 @@ function HY2Clash2QX(cnt) {
   return HY2Node(cnt.server, port, cnt.password, Pcert0, {ports: ports, interval: cnt["hop-interval"], down: cnt.down,
     obfs: cnt.obfs, obfsPassword: cnt["obfs-password"], sni: cnt.sni,
     insecure: cnt["skip-cert-verify"] === true, name: ClashNameFix(cnt.name)});
+}
+
+// mieru 分享链接和 Clash 节点仅转换能用 QuanX 字段表达的 TCP 连接。
+function MieruSimpleFields(line) {
+  if (/^mieru:\/\//i.test(line)) {
+    throw new Error("完整 mieru:// 客户端配置请改用 mierus:// 简单分享链接");
+  }
+  const match = line.match(/^mierus:\/\/([^:@/?#]+):([^@/?#]+)@([^/?#]+)\?([^#]+)(?:#(.*))?$/i);
+  if (!match) throw new Error("分享链接格式无效");
+  const params = Object.create(null);
+  for (const item of match[4].split("&")) {
+    const field = item.match(/^([^=]+)=(.*)$/);
+    if (!field) throw new Error("分享链接参数无效");
+    const key = decodeURIComponent(field[1]);
+    if (params[key] !== undefined) {
+      throw new Error("仅支持单端口 TCP 分享链接");
+    }
+    params[key] = decodeURIComponent(field[2].replace(/\+/g, " "));
+  }
+  if (!params.profile || !/^tcp$/i.test(params.protocol || "") || !/^\d+$/.test(params.port || "")) {
+    throw new Error("仅支持含 profile 的单端口 TCP 分享链接");
+  }
+  if (Object.keys(params).some(key => !/^(profile|port|protocol|handshake-mode)$/.test(key)) ||
+      (params["handshake-mode"] && params["handshake-mode"] !== "HANDSHAKE_STANDARD")) {
+    throw new Error("分享链接包含 QuanX 无法转换的连接参数");
+  }
+  return {
+    server: match[3], port: params.port,
+    fields: {
+      username: decodeURIComponent(match[1]), password: decodeURIComponent(match[2]),
+      "udp-relay": "true", tag: match[5] ? decodeURIComponent(match[5]) : params.profile
+    }
+  };
+}
+
+function MieruClashFields(node) {
+  if (!/^tcp$/i.test(node.transport || "") || node["port-range"]) {
+    throw new Error("仅支持 Clash/Mihomo 的单端口 TCP 节点");
+  }
+  const supported = /^(type|name|server|port|transport|username|password|udp|port-range|handshake-mode|multiplexing|traffic-pattern)$/;
+  if ((node["handshake-mode"] && node["handshake-mode"] !== "HANDSHAKE_STANDARD") ||
+      (node.multiplexing && node.multiplexing !== "MULTIPLEXING_LOW") || node["traffic-pattern"] ||
+      Object.keys(node).some(key => !supported.test(key))) {
+    throw new Error("Clash/Mihomo 节点包含 QuanX 无法转换的连接参数");
+  }
+  return {
+    server: node.server, port: node.port,
+    fields: {
+      username: node.username, password: node.password,
+      "udp-relay": String(node.udp === true), tag: ClashNameFix(node.name)
+    }
+  };
+}
+
+function MieruNativeFields(line) {
+  const parts = line.split(/,\s*(?=[a-z][\w-]*\s*=)/i);
+  const address = parts.shift().match(/^mieru\s*=\s*(\[[^\]]+\]|[^:\s,]+):(\d+)\s*$/i);
+  if (!address) throw new Error("原生节点地址无效");
+  const fields = Object.create(null);
+  for (const part of parts) {
+    const pair = part.match(/^([a-z][\w-]*)\s*=(.*)$/i);
+    const key = pair && pair[1].toLowerCase();
+    if (!key || fields[key] !== undefined) throw new Error("原生节点字段无效或重复");
+    fields[key] = pair[2].trim();
+  }
+  return {server: address[1], port: address[2], fields: fields};
+}
+
+function MieruConvert(kind, input) {
+  if (!NodeBuildSupported("mieru", MIERU_MIN_BUILD)) return "";
+  try {
+    const node = kind === "native" ? MieruNativeFields(input) :
+      kind === "uri" ? MieruSimpleFields(input) : MieruClashFields(input);
+    let server = node.server;
+    if (typeof server === "string" && server.includes(":") && !server.startsWith("[")) server = "[" + server + "]";
+    const port = Number(node.port);
+    if (typeof server !== "string" || !/^(?:\[[0-9a-f:.]+\]|[^,:\/\s?#@\[\]]+)$/i.test(server) ||
+        !/^\d+$/.test(String(node.port)) || port < 1 || port > 65535) {
+      throw new Error("节点地址或端口无效");
+    }
+    const fields = node.fields;
+    if (![fields.username, fields.password].every(value =>
+      typeof value === "string" && value && value === value.trim() && !/[\x00-\x1f\x7f,]/.test(value))) {
+      throw new Error("用户名或密码缺失，或含 QuanX 无法表示的字符");
+    }
+    for (const key of ["udp-relay", "udp-over-tcp", "over-tls", "fast-open"]) {
+      if (fields[key] !== undefined && !/^(true|false)$/.test(fields[key])) throw new Error("布尔字段无效");
+    }
+    if (Pudp0 == 1 || Pudp0 == -1) fields["udp-relay"] = String(Pudp0 == 1);
+    if (fields["udp-relay"] === "true") fields["udp-over-tcp"] = "true";
+    if (fields["udp-relay"] === "false" && fields["udp-over-tcp"] !== undefined) fields["udp-over-tcp"] = "false";
+    if (Ptfo0 == 1 || Ptfo0 == -1) fields["fast-open"] = String(Ptfo0 == 1);
+    if (PcertMatch && fields["over-tls"] === "true" && !fields["reality-base64-pubkey"]) {
+      const override = TLSCertDomainValue(Pcert0);
+      if (override) fields["tls-verification"] = override;
+    }
+    const name = String(fields.tag || "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
+    delete fields.tag;
+    const output = ["mieru=" + server + ":" + port];
+    for (const key of Object.keys(fields)) {
+      if (/[\x00-\x1f\x7f,]/.test(fields[key])) throw new Error("节点字段含 QuanX 无法表示的字符");
+      output.push(key + "=" + fields[key]);
+    }
+    output.push("tag=" + (name || "[mieru] " + server + ":" + port));
+    return output.join(", ");
+  } catch (e) {
+    NoteUnsupportedNode("mieru", e instanceof URIError ? "分享链接编码无效" : e.message);
+    return "";
+  }
 }
 
 // AnyTLS uri 转换成 quanx 格式
@@ -3603,6 +3729,10 @@ function isQuanX(content) {
     var nlist = []
     for (var i = 0; i < cnts.length; i++) {
         var cnti = cnts[i];
+        if (MIERU_NATIVE.test(cnti.trim())) {
+            nlist.push(cnti.trim())
+            continue
+        }
         if (cnti.indexOf("=") != -1 && cnti.indexOf("tag") != -1) {
             var cnt = cnti.split("=")[0].trim()
             if (cnt == "http" || cnt == "shadowsocks" || cnt == "trojan" || cnt == "vmess" || cnt == "socks5" || cnt == "vless" ||  cnt == "anytls" || cnt == "hysteria2") {
@@ -4792,6 +4922,12 @@ function Clash2QX(cnt) {
     aa = aa.replace(new RegExp(patn[4][i], "gmi"),patn[0][i])
   }
   var bb = JSON.parse(aa).proxies
+  // YAMLFix rewrites punctuation and can change mieru credentials. Read those entries from the original text.
+  let originalMieru = null;
+  if (bb.some(node => node && /^mieru$/i.test(node.type))) {
+    try { originalMieru = (JCheck(cnt) ? JSON.parse(cnt) : new YAML().parse(cnt)).proxies; }
+    catch (e) {}
+  }
   if (Pdbg==1) { $notify("After YAML Parse", "content", JSON.stringify(bb))}
   //console.log(bb)
   var nl = bb.length
@@ -4816,8 +4952,18 @@ function Clash2QX(cnt) {
       } else if (typecc == "vless"){
         node = CVL2QX(node)
       } else if (typecc == "hysteria2" || typecc == "hy2") {
-        if (!HY2BuildSupported()) continue;
+        if (!NodeBuildSupported("Hysteria 2", HY2_MIN_BUILD)) continue;
         node = HY2Clash2QX(node);
+      } else if (/^mieru$/i.test(typecc)) {
+        if (version < MIERU_MIN_BUILD) {
+          NodeBuildSupported("mieru", MIERU_MIN_BUILD);
+        } else if (Array.isArray(originalMieru) && originalMieru.length === nl && /^mieru$/i.test(originalMieru[i]?.type)) {
+          const mieru = MieruConvert("clash", originalMieru[i]);
+          if (mieru) nodelist.push(mieru);
+        } else {
+          NoteUnsupportedNode("mieru", "无法安全读取 Clash/Mihomo 原始字段");
+        }
+        continue;
       } else if (typecc=="anytls" && version >913) { //anytls
         node = CTLS2QX(node)
       } else { // not support type
@@ -5799,7 +5945,7 @@ function Tools() {
         const nodes = {
             names: servers.map(s => s.split("tag=")[1]),
             types: servers.map(s => {
-                const type = s.match(/^(vmess|trojan|shadowsocks|http|hysteria2)=/);
+                const type = s.match(/^(vmess|trojan|shadowsocks|http|hysteria2|mieru)=/);
                 return type ? type[1] : 'unknown';
             })
         };

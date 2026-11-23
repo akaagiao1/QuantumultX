@@ -33,6 +33,14 @@ Hysteria 2 需要 Quantumult X **1.9.0（build 965）或更新版本**。[官方
 hysteria2=example.com:443, password=pwd, tls-host=example.com, tls-verification=true, udp-relay=true, tag=HY2
 ```
 
+### mieru（build 968+）
+
+mieru 需要 Quantumult X **1.9.0（build 968）或更新版本**。原生 `mieru=` 节点支持 TCP、TLS 和 REALITY。开启 UDP 中继时使用 `udp-relay=true, udp-over-tcp=true`。[Quantumult X 版本公告](https://t.me/QuanXNews/451)
+
+订阅可导入单端口 TCP 的 `mierus://` 简单分享链接（包括 Base64 订阅）和 Clash/Mihomo 的 `type: mieru` 节点。完整 `mieru://` 客户端配置请重新导出为简单链接。UDP 传输、端口范围或无法转换的选项会提示并跳过该条目。低于 build 968 时会跳过 mieru 节点。
+
+可以把原生节点写入 `[server_local]`。模板中有 TCP、TLS 和 REALITY 三种示例，请用服务商提供的地址和凭据替换占位值。
+
 [解析器源码](Scripts/resource-parser.js) · [完整配置示例](QuantumultX_Profiles.conf)
 
 有bug请反馈 [@ShawnKOP_Parser_Bot](https://t.me/Shawn_Parser_Bot) 
